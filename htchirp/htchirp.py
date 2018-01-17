@@ -31,11 +31,7 @@ def quote(chirp_string):
 class HTChirp:
     """Chirp client for HTCondor
 
-    Provides Chirp commands compatible with the HTCondor Chirp implementation
-    with the exception of the following commands:
-
-    * read
-    * write
+    Provides Chirp commands compatible with the HTCondor Chirp implementation.
 
     Some commands have been renamed (and aliased) to follow the Chirp protocol:
     fetch -> getfile
@@ -383,7 +379,7 @@ class HTChirp:
         :param fd: File descriptor
 
         """
-        
+
         self.__simple_command("close {0}\n".format(int(fd)))
 
     def __read(self,
@@ -429,14 +425,14 @@ class HTChirp:
 
         return self.__get_fixed_data(rb)
 
-    def __write(self, data,
-                    fd, length,
+    def __write(self,
+                    fd, data, length,
                     offset = None,
                     stride_length = None, stride_skip = None):
         """Write to a file on the Chirp server
 
-        :param data: Data to write
         :param fd: File descriptor
+        :param data: Data to write
         :param length: Number of bytes to write
         :param offset: Skip this many bytes when writing
         :param stride_length: Write this many bytes every stride_skip bytes
@@ -483,7 +479,7 @@ class HTChirp:
         :param fd: File descriptor
 
         """
-        
+
         self.__simple_command("fsync {0}\n".format(int(fd)))
 
     def __lseek(self, fd, offset, whence):
@@ -595,6 +591,61 @@ class HTChirp:
             quote(phasestring)))
         self.__disconnect()
 
+    # Wrappers around methods that use a file descriptor
+
+    def read(self, remote_path, length,
+                 offset = None, stride_length = None, stride_skip = None):
+        """Read up to 'length' bytes from a file on the remote machine.
+
+        Optionally, start at an offset and/or retrieve data in strides.
+
+        :param remote_path: Path to file
+        :param length: Number of bytes to read
+        :param offset: Number of bytes to offset from beginning of file
+        :param stride_length: Number of bytes to read per stride
+        :param stride_skip: Number of bytes to skip per stride
+        :returns: Data read from file
+
+        """
+
+        self.__connect()
+        fd = self.__open(remote_path, 'r')
+        data = self.__read(fd, length, offset, stride_length, stride_skip)
+        self.__close(fd)
+        self.__disconnect()
+
+        return data
+
+    def write(self, data, remote_path, length = None,
+                  offset = None, stride_length = None, stride_skip = None):
+        """Write bytes to a file on the remote matchine.
+
+        Optionally, specify the number of bytes to write,
+        start at an offset, and/or write data in strides.
+
+        :param data: Bytes to write
+        :param remote_path: Path to file
+        :param length: Number of bytes to write [default: len(data)]
+        :param offset: Number of bytes to offset from beginning of file
+        :param stride_length: Number of bytes to write per stride
+        :param stride_skip: Number of bytes to skip per stride
+        :returns: Number of bytes written
+
+        """
+
+        if length == None:
+            length = len(data)
+
+        self.__connect()
+        fd = self.__open(remote_path, 'w')
+        bytes_sent = self.__write(fd, data, length, offset,
+                                      stride_length, stride_skip)
+        self.__fsync(fd) # force the file to be written to disk
+        self.__close(fd)
+        self.__disconnect()
+
+        return bytes_sent
+
     # Chirp protocol standard methods
 
     def rename(self, old_path, new_path):
@@ -697,6 +748,8 @@ class HTChirp:
 
     def putfile(self, local_file, remote_file, mode = None):
         """Store an entire file efficiently to the remote machine.
+
+        Note that this method will *not* append data to files.
 
         :param local_file: Path to file to be sent from local machine
         :param remote_file: Path to file to be written to on remote machine
@@ -856,7 +909,7 @@ class HTChirp:
             quote(remote_path)))
         result = self.__get_fixed_data(length)
         self.__disconnect()
-        
+
         return result
 
     def stat(self, remote_path):
