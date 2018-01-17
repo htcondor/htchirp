@@ -100,26 +100,26 @@ class HTChirp:
                                   "or you must provide a host and port"))
 
         # store connection parameters
-        self.__host = host
-        self.__port = int(port)
-        self.__cookie = cookie
-        self.__timeout = timeout
+        self._host = host
+        self._port = int(port)
+        self._cookie = cookie
+        self._timeout = timeout
 
         # connect and store authentication method
-        self.__authentication = None
+        self._authentication = None
         for auth_method in auth:
             try:
-                self.__connect(auth_method)
+                self._connect(auth_method)
             except self.NotAuthenticated:
-                self.__disconnect()
+                self._disconnect()
             except NotImplementedError:
-                self.__disconnect()
+                self._disconnect()
                 raise
             else:
-                self.__disconnect()
-                self.__authentication = auth_method
+                self._disconnect()
+                self._authentication = auth_method
                 break
-        if self.__authentication == None:
+        if self._authentication == None:
             raise self.NotAuthenticated(
                 "Could not authenticate with methods {0}".format(auth))
 
@@ -128,20 +128,20 @@ class HTChirp:
 
     def __del__(self):
         """Disconnect from the Chirp server when this object goes away"""
-        self.__disconnect()
+        self._disconnect()
 
     def __repr__(self):
         """Print a representation of this object"""
         return "{0}({1}, {2}) using {3} authentication".format(
             self.__class__.__name__,
-            self.__host,
-            self.__port,
-            self.__authentication)
+            self._host,
+            self._port,
+            self._authentication)
 
 
     ## internal methods
 
-    def __connect(self, auth_method = None):
+    def _connect(self, auth_method = None):
         """Connect to and authenticate with the Chirp server
 
         :param auth_method: If set, try the specific authentication method
@@ -149,31 +149,31 @@ class HTChirp:
         """
 
         if not auth_method:
-            auth_method = self.__authentication
+            auth_method = self._authentication
 
         # close the socket if it is open and exists
         try:
-            self.__socket.getsockname()
+            self._socket.getsockname()
         except (NameError, AttributeError):
             pass # socket object does not exist
         except socket.error:
             pass # socket exists but is closed
         else:
             # socket exists and is connected
-            self.__disconnect()
+            self._disconnect()
 
         # create the socket
-        self.__socket = socket.socket()
-        self.__socket.settimeout(self.__timeout)
+        self._socket = socket.socket()
+        self._socket.settimeout(self._timeout)
 
         # connect and authenticate
-        self.__socket.connect((self.__host, self.__port))
-        self.__authenticate(auth_method)
+        self._socket.connect((self._host, self._port))
+        self._authenticate(auth_method)
 
         # reset open file descriptors
         self.fds = {}
 
-    def __authenticate(self, method):
+    def _authenticate(self, method):
         """Test authentication method
 
         :param method: The authentication method to attempt
@@ -181,8 +181,8 @@ class HTChirp:
         """
 
         if method == "cookie":
-            response = self.__simple_command("cookie {0}\n".format(
-                self.__cookie))
+            response = self._simple_command("cookie {0}\n".format(
+                self._cookie))
             if not (str(response) == "0"):
                 raise self.NotAuthenticated(
                     "Could not authenticate using {0}".format(method))
@@ -194,11 +194,11 @@ class HTChirp:
             raise ValueError("Unknown authentication method '{0}'".format(
                 method))
 
-    def __disconnect(self):
+    def _disconnect(self):
         """Close connection with the Chirp server"""
 
         try:
-            self.__socket.close()
+            self._socket.close()
         except socket.error:
             pass
         except (NameError, AttributeError):
@@ -207,7 +207,7 @@ class HTChirp:
         # reset open file descriptors
         self.fds = {}
 
-    def __simple_command(self, cmd):
+    def _simple_command(self, cmd):
         """Send a command to the Chirp server
 
         :param cmd: The command to be sent
@@ -224,14 +224,14 @@ class HTChirp:
         # send the command
         bytes_sent = 0
         while bytes_sent < len(cmd):
-            sent = self.__socket.send(cmd[bytes_sent:])
+            sent = self._socket.send(cmd[bytes_sent:])
             if sent == 0:
                 raise RuntimeError("Connection to the Chirp server is broken.")
             bytes_sent = bytes_sent + sent
 
-        return self.__simple_response()
+        return self._simple_response()
 
-    def __simple_response(self):
+    def _simple_response(self):
         """Get the response from the Chirp server after running a command
 
         :returns: The response from the Chirp server
@@ -243,7 +243,7 @@ class HTChirp:
         response = b""
         chunk = b""
         while chunk != "\n": # response terminated with \n
-            chunk = self.__socket.recv(1)
+            chunk = self._socket.recv(1)
             response += chunk
             # make sure response doesn't get too large
             if len(response) > self.__class__.CHIRP_LINE_MAX:
@@ -256,11 +256,11 @@ class HTChirp:
         except ValueError:
             pass
         else:
-            self.__check_response(int(response))
+            self._check_response(int(response))
 
         return response
 
-    def __check_response(self, response):
+    def _check_response(self, response):
         """Check the response from the Chirp server for validity
 
         :raises ChirpError: Many different subclasses of ChirpError
@@ -294,7 +294,7 @@ class HTChirp:
             raise self.UnknownError("An unknown error ({0}) occured.".format(
                 response))
 
-    def __get_fixed_data(self, length, output_file = None):
+    def _get_fixed_data(self, length, output_file = None):
         """Get a fixed amount of data from the Chirp server
 
         :param length: The amount of data (in bytes) to receive
@@ -309,7 +309,7 @@ class HTChirp:
             chunk = b""
             with open(output_file, "wb") as fd:
                 while bytes_recv < length:
-                    chunk = self.__socket.recv(self.__class__.CHIRP_LINE_MAX)
+                    chunk = self._socket.recv(self.__class__.CHIRP_LINE_MAX)
                     fd.write(chunk)
                     bytes_recv += len(chunk)
             return bytes_recv
@@ -318,15 +318,15 @@ class HTChirp:
             data = b""
             chunk = b""
             while len(data) < length:
-                chunk = self.__socket.recv(self.__class__.CHIRP_LINE_MAX)
+                chunk = self._socket.recv(self.__class__.CHIRP_LINE_MAX)
                 data += chunk
             return data
 
-    def __get_line_data(self):
+    def _get_line_data(self):
         """Get one line of data from the Chirp server
 
         Most chirp commands return the length of data that will be returned, in
-        which case the __get_fixed_data method should be used. This is for the
+        which case the _get_fixed_data method should be used. This is for the
         few commands (stat, lstat) that do not return a fixed length.
 
         :returns: A line of data received from the Chirp server
@@ -335,12 +335,12 @@ class HTChirp:
 
         data = b""
         while True:
-            data += self.__socket.recv(self.__class__.CHIRP_LINE_MAX)
+            data += self._socket.recv(self.__class__.CHIRP_LINE_MAX)
             if (data[-1] == "\n"):
                 break
         return data
 
-    def __open(self, name, flags, mode = None):
+    def _open(self, name, flags, mode = None):
         """Open a file on the Chirp server
 
         :param name: Path to file
@@ -362,7 +362,7 @@ class HTChirp:
             raise ValueError("Flags must be one or more of 'rwatcx'")
 
         # get file descriptor
-        fd = int(self.__simple_command("open {0} {1} {2}\n".format(
+        fd = int(self._simple_command("open {0} {1} {2}\n".format(
             quote(name),
             ''.join(flags),
             int(mode))))
@@ -373,16 +373,16 @@ class HTChirp:
 
         return fd
 
-    def __close(self, fd):
+    def _close(self, fd):
         """Close a file on the Chirp server
 
         :param fd: File descriptor
 
         """
 
-        self.__simple_command("close {0}\n".format(int(fd)))
+        self._simple_command("close {0}\n".format(int(fd)))
 
-    def __read(self,
+    def _read(self,
                    fd, length,
                    offset = None,
                    stride_length = None, stride_skip = None):
@@ -402,18 +402,18 @@ class HTChirp:
 
         if (offset, stride_length, stride_skip) == (None, None, None):
             # read
-            rb = self.__simple_command("read {0} {1}\n".format(
+            rb = self._simple_command("read {0} {1}\n".format(
                 int(fd),
                 int(length)))
         elif (offset != None) and (stride_length, stride_skip) == (None, None):
             # pread
-            rb = self.__simple_command("pread {0} {1} {2}\n".format(
+            rb = self._simple_command("pread {0} {1} {2}\n".format(
                 int(fd),
                 int(length),
                 int(offset)))
         elif (stride_length, stride_skip) != (None, None):
             # sread
-            rb = self.__simple_command("sread {0} {1} {2} {3} {4}\n".format(
+            rb = self._simple_command("sread {0} {1} {2} {3} {4}\n".format(
                 int(fd),
                 int(length),
                 int(offset),
@@ -423,9 +423,9 @@ class HTChirp:
             raise self.InvalidRequest(
                 "Both stride_length and stride_skip must be specified")
 
-        return self.__get_fixed_data(rb)
+        return self._get_fixed_data(rb)
 
-    def __write(self,
+    def _write(self,
                     fd, data, length,
                     offset = None,
                     stride_length = None, stride_skip = None):
@@ -446,18 +446,18 @@ class HTChirp:
 
         if (offset, stride_length, stride_skip) == (None, None, None):
             # write
-            wb = self.__simple_command("write {0} {1}\n".format(
+            wb = self._simple_command("write {0} {1}\n".format(
                 int(fd),
                 int(length)))
         elif (offset != None) and (stride_length, stride_skip) == (None, None):
             # pwrite
-            wb = self.__simple_command("pwrite {0} {1} {2}\n".format(
+            wb = self._simple_command("pwrite {0} {1} {2}\n".format(
                 int(fd),
                 int(length),
                 int(offset)))
         elif (stride_length, stride_skip) != (None, None):
             # swrite
-            wb = self.__simple_command("swrite {0} {1} {2} {3} {4}\n".format(
+            wb = self._simple_command("swrite {0} {1} {2} {3} {4}\n".format(
                 int(fd),
                 int(length),
                 int(offset),
@@ -467,22 +467,22 @@ class HTChirp:
             raise self.InvalidRequest(
                 "Both stride_length and stride_skip must be specified")
 
-        wfd = self.__socket.makefile("wb") # open socket as a file object
+        wfd = self._socket.makefile("wb") # open socket as a file object
         wfd.write(data[:int(wb)]) # write up to wb bytes
         wfd.close() # close socket file object
 
         return int(wb)
 
-    def __fsync(self, fd):
+    def _fsync(self, fd):
         """Flush unwritten data to disk
 
         :param fd: File descriptor
 
         """
 
-        self.__simple_command("fsync {0}\n".format(int(fd)))
+        self._simple_command("fsync {0}\n".format(int(fd)))
 
-    def __lseek(self, fd, offset, whence):
+    def _lseek(self, fd, offset, whence):
         """Move the position of a pointer in an open file
 
         :param fd: File descriptor
@@ -492,7 +492,7 @@ class HTChirp:
 
         """
 
-        pos = self.__simple_command("lseek {0} {1} {2}\n".format(
+        pos = self._simple_command("lseek {0} {1} {2}\n".format(
             int(fd),
             int(offset),
             int(whence)))
@@ -510,11 +510,11 @@ class HTChirp:
 
         """
 
-        self.__connect()
-        length = int(self.__simple_command("get_job_attr {0}\n".format(
+        self._connect()
+        length = int(self._simple_command("get_job_attr {0}\n".format(
             quote(job_attribute))))
-        result = self.__get_fixed_data(length)
-        self.__disconnect()
+        result = self._get_fixed_data(length)
+        self._disconnect()
 
         return str(result)
 
@@ -528,11 +528,11 @@ class HTChirp:
 
         """
 
-        self.__connect()
-        length = int(self.__simple_command("get_job_attr_delayed {0}\n".format(
+        self._connect()
+        length = int(self._simple_command("get_job_attr_delayed {0}\n".format(
             quote(job_attribute))))
-        result = self.__get_fixed_data(length)
-        self.__disconnect()
+        result = self._get_fixed_data(length)
+        self._disconnect()
 
         return str(result)
 
@@ -544,11 +544,11 @@ class HTChirp:
 
         """
 
-        self.__connect()
-        self.__simple_command("set_job_attr {0} {1}\n".format(
+        self._connect()
+        self._simple_command("set_job_attr {0} {1}\n".format(
             quote(job_attribute),
             quote(attribute_value)))
-        self.__disconnect()
+        self._disconnect()
 
     def set_job_attr_delayed(self, job_attribute, attribute_value):
         """Set the value of a job ClassAd attribute.
@@ -561,11 +561,11 @@ class HTChirp:
         :param attribute_value: The job attribute's new value
 
         """
-        self.__connect()
-        self.__simple_command("set_job_attr_delayed {0} {1}\n".format(
+        self._connect()
+        self._simple_command("set_job_attr_delayed {0} {1}\n".format(
             quote(job_attribute),
             quote(attribute_value)))
-        self.__disconnect()
+        self._disconnect()
 
     def ulog(self, text):
         """Log a generic string to the job log.
@@ -574,10 +574,10 @@ class HTChirp:
 
         """
 
-        self.__connect()
-        self.__simple_command("ulog {0}\n".format(
+        self._connect()
+        self._simple_command("ulog {0}\n".format(
             quote(text)))
-        self.__disconnect()
+        self._disconnect()
 
     def phase(self, phasestring):
         """Tell HTCondor that the job is changing phases.
@@ -586,10 +586,10 @@ class HTChirp:
 
         """
 
-        self.__connect()
-        self.__simple_command("phase {0}\n".format(
+        self._connect()
+        self._simple_command("phase {0}\n".format(
             quote(phasestring)))
-        self.__disconnect()
+        self._disconnect()
 
     # Wrappers around methods that use a file descriptor
 
@@ -608,11 +608,11 @@ class HTChirp:
 
         """
 
-        self.__connect()
-        fd = self.__open(remote_path, 'r')
-        data = self.__read(fd, length, offset, stride_length, stride_skip)
-        self.__close(fd)
-        self.__disconnect()
+        self._connect()
+        fd = self._open(remote_path, 'r')
+        data = self._read(fd, length, offset, stride_length, stride_skip)
+        self._close(fd)
+        self._disconnect()
 
         return data
 
@@ -636,13 +636,13 @@ class HTChirp:
         if length == None:
             length = len(data)
 
-        self.__connect()
-        fd = self.__open(remote_path, 'w')
-        bytes_sent = self.__write(fd, data, length, offset,
+        self._connect()
+        fd = self._open(remote_path, 'w')
+        bytes_sent = self._write(fd, data, length, offset,
                                       stride_length, stride_skip)
-        self.__fsync(fd) # force the file to be written to disk
-        self.__close(fd)
-        self.__disconnect()
+        self._fsync(fd) # force the file to be written to disk
+        self._close(fd)
+        self._disconnect()
 
         return bytes_sent
 
@@ -656,11 +656,11 @@ class HTChirp:
 
         """
 
-        self.__connect()
-        self.__simple_command("rename {0} {1}\n".format(
+        self._connect()
+        self._simple_command("rename {0} {1}\n".format(
             quote(old_path),
             quote(new_path)))
-        self.__disconnect()
+        self._disconnect()
 
     def unlink(self, remote_file):
         """Delete a file on the remote machine.
@@ -669,10 +669,10 @@ class HTChirp:
 
         """
 
-        self.__connect()
-        self.__simple_command("unlink {0}\n".format(
+        self._connect()
+        self._simple_command("unlink {0}\n".format(
             quote(remote_file)))
-        self.__disconnect()
+        self._disconnect()
 
     # alias remove -> unlink
     remove = unlink
@@ -688,12 +688,12 @@ class HTChirp:
         """
 
         if recursive == True:
-            self.__rmall(remote_path)
+            self.rmall(remote_path)
         else:
-            self.__connect()
-            self.__simple_command("rmdir {0}\n".format(
+            self._connect()
+            self._simple_command("rmdir {0}\n".format(
                 quote(remote_path)))
-            self.__disconnect()
+            self._disconnect()
 
     def rmall(self, remote_path):
         """Recursively delete an entire directory on the remote machine.
@@ -702,8 +702,8 @@ class HTChirp:
 
         """
 
-        self.__connect()
-        self.__simple_command("rmall {0}\n".format(
+        self._connect()
+        self._simple_command("rmall {0}\n".format(
             quote(remote_path)))
         self._disconnect()
 
@@ -720,11 +720,11 @@ class HTChirp:
         if mode == None:
             mode = self.__class__.DEFAULT_MODE
 
-        self.__connect()
-        self.__simple_command("mkdir {0} {1}\n".format(
+        self._connect()
+        self._simple_command("mkdir {0} {1}\n".format(
             quote(remote_path),
             int(mode)))
-        self.__disconnect()
+        self._disconnect()
 
     def getfile(self, remote_file, local_file):
         """Retrieve an entire file efficiently from the remote machine.
@@ -735,11 +735,11 @@ class HTChirp:
 
         """
 
-        self.__connect()
-        length = int(self.__simple_command("getfile {0}\n".format(
+        self._connect()
+        length = int(self._simple_command("getfile {0}\n".format(
             quote(remote_file))))
-        bytes_recv = self.__get_fixed_data(length, local_file)
-        self.__disconnect()
+        bytes_recv = self._get_fixed_data(length, local_file)
+        self._disconnect()
 
         return bytes_recv
 
@@ -768,12 +768,12 @@ class HTChirp:
         bytes_sent = 0
 
         # send the file
-        self.__connect()
-        self.__simple_command("putfile {0} {1} {2}\n".format(
+        self._connect()
+        self._simple_command("putfile {0} {1} {2}\n".format(
             quote(remote_file),
             int(mode),
             int(length)))
-        wfd = self.__socket.makefile("wb") # open socket as a file object
+        wfd = self._socket.makefile("wb") # open socket as a file object
         with open(local_file, "rb") as rfd:
             data = rfd.read(self.__class__.CHIRP_LINE_MAX)
             while data: # write to socket CHIRP_LINE_MAX bytes at a time
@@ -781,7 +781,7 @@ class HTChirp:
                 bytes_sent += len(data)
                 data = rfd.read(self.__class__.CHIRP_LINE_MAX)
         wfd.close()
-        self.__disconnect()
+        self._disconnect()
 
         return bytes_sent
 
@@ -799,11 +799,11 @@ class HTChirp:
         names = ["device", "inode", "mode", "nlink", "uid", "gid", "rdevice"
                      "size", "blksize", "blocks", "atime", "mtime", "ctime"]
 
-        self.__connect()
-        length = int(self.__simple_command("getlongdir {0}\n".format(
+        self._connect()
+        length = int(self._simple_command("getlongdir {0}\n".format(
             quote(remote_path))))
-        result = self.__get_fixed_data(length)
-        self.__disconnect()
+        result = self._get_fixed_data(length)
+        self._disconnect()
 
         results = result.rstrip().split("\n")
         files = results[::2]
@@ -823,11 +823,11 @@ class HTChirp:
         if stat_dict == True:
             return getlongdir(remote_path)
         else:
-            self.__connect()
-            length = int(self.__simple_command("getdir {0}\n".format(
+            self._connect()
+            length = int(self._simple_command("getdir {0}\n".format(
                 quote(remote_path))))
-            result = self.__get_fixed_data(length)
-            self.__disconnect()
+            result = self._get_fixed_data(length)
+            self._disconnect()
 
             files = result.rstrip().split("\n")
             return files
@@ -839,11 +839,11 @@ class HTChirp:
 
         """
 
-        self.__connect()
-        length = int(self.__simple_command("whoami {0}\n".format(
+        self._connect()
+        length = int(self._simple_command("whoami {0}\n".format(
             self.__class__.CHIRP_LINE_MAX)))
-        result = self.__get_fixed_data(length)
-        self.__disconnect()
+        result = self._get_fixed_data(length)
+        self._disconnect()
 
         return str(result)
 
@@ -855,12 +855,12 @@ class HTChirp:
 
         """
 
-        self.__connect()
-        length = int(self.__simple_command("whoareyou {0} {1}\n".format(
+        self._connect()
+        length = int(self._simple_command("whoareyou {0} {1}\n".format(
             quote(remote_host),
             self.__class__.CHIRP_LINE_MAX)))
-        result = self.__get_fixed_data(length)
-        self.__disconnect()
+        result = self._get_fixed_data(length)
+        self._disconnect()
 
         return str(result)
 
@@ -874,13 +874,13 @@ class HTChirp:
         """
 
         if symbolic:
-            self.__symlink(old_path, new_path)
+            self.symlink(old_path, new_path)
         else:
-            self.__connect()
-            self.__simple_command("link {0} {1}\n".format(
+            self._connect()
+            self._simple_command("link {0} {1}\n".format(
                 quote(old_path),
                 quote(new_path)))
-            self.__disconnect()
+            self._disconnect()
 
     def symlink(self, old_path, new_path):
         """Create a symbolic link on the remote machine.
@@ -890,11 +890,11 @@ class HTChirp:
 
         """
 
-        self.__connect()
-        self.__simple_command("symlink {0} {1}\n".format(
+        self._connect()
+        self._simple_command("symlink {0} {1}\n".format(
             quote(old_path),
             quote(new_path)))
-        self.__disconnect()
+        self._disconnect()
 
     def readlink(self, remote_path):
         """Read the contents of a symbolic link.
@@ -904,11 +904,11 @@ class HTChirp:
 
         """
 
-        self.__connect()
-        length = self.__simple_command("readlink {0}\n".format(
+        self._connect()
+        length = self._simple_command("readlink {0}\n".format(
             quote(remote_path)))
-        result = self.__get_fixed_data(length)
-        self.__disconnect()
+        result = self._get_fixed_data(length)
+        self._disconnect()
 
         return result
 
@@ -925,13 +925,13 @@ class HTChirp:
         names = ["device", "inode", "mode", "nlink", "uid", "gid", "rdevice",
                      "size", "blksize", "blocks", "atime", "mtime", "ctime"]
 
-        self.__connect()
-        response = self.__simple_command("stat {0}\n".format(
+        self._connect()
+        response = self._simple_command("stat {0}\n".format(
             quote(remote_path)))
-        result = str(self.__get_line_data()).rstrip()
+        result = str(self._get_line_data()).rstrip()
         while len(result.split()) < len(names):
-            result += (" " + str(self.__get_line_data()).rstrip())
-        self.__disconnect()
+            result += (" " + str(self._get_line_data()).rstrip())
+        self._disconnect()
 
         results = [int(x) for x in result.split()]
         return dict(zip(names, results))
@@ -949,13 +949,13 @@ class HTChirp:
         names = ["device", "inode", "mode", "nlink", "uid", "gid", "rdevice",
                      "size", "blksize", "blocks", "atime", "mtime", "ctime"]
 
-        self.__connect()
-        response = self.__simple_command("lstat {0}\n".format(
+        self._connect()
+        response = self._simple_command("lstat {0}\n".format(
             quote(remote_path)))
-        result = str(self.__get_line_data()).rstrip()
+        result = str(self._get_line_data()).rstrip()
         while len(result.split()) < len(names):
-            result += (" " + str(self.__get_line_data()).rstrip())
-        self.__disconnect()
+            result += (" " + str(self._get_line_data()).rstrip())
+        self._disconnect()
 
         results = [int(x) for x in result.split()]
         stats = dict(zip(names, results))
@@ -972,13 +972,13 @@ class HTChirp:
         names = ["type", "bsize", "blocks", "bfree", "bavail", "files", "free"]
         names = ["f_" + x for x in names]
 
-        self.__connect()
-        response = self.__simple_command("statfs {0}\n".format(
+        self._connect()
+        response = self._simple_command("statfs {0}\n".format(
             quote(remote_path)))
-        result = str(self.__get_line_data()).rstrip()
+        result = str(self._get_line_data()).rstrip()
         while len(result.split()) < len(names):
-            result += (" " + str(self.__get_line_data()).rstrip())
-        self.__disconnect()
+            result += (" " + str(self._get_line_data()).rstrip())
+        self._disconnect()
 
         results = [int(x) for x in result.split()]
         stats = dict(zip(names, results))
@@ -1006,11 +1006,11 @@ class HTChirp:
                 raise ValueError("mode '{0}' not in (fxwr)".format(m))
             mode = mode | modes[m]
 
-        self.__connect()
-        self.__simple_command("access {0} {1}\n".format(
+        self._connect()
+        self._simple_command("access {0} {1}\n".format(
             quote(remote_path),
             mode_oct))
-        self.__disconnect()
+        self._disconnect()
 
     def chmod(self, remote_path, mode):
         """Change permission mode of a path on the remote machine.
@@ -1020,11 +1020,11 @@ class HTChirp:
 
         """
 
-        self.__connect()
-        self.__simple_command("chmod {0} {1}\n".format(
+        self._connect()
+        self._simple_command("chmod {0} {1}\n".format(
             quote(remote_path),
             int(mode)))
-        self.__disconnect()
+        self._disconnect()
 
     def chown(self, remote_path, uid, gid):
         """Change the UID and/or GID of a path on the remote machine.
@@ -1037,12 +1037,12 @@ class HTChirp:
 
         """
 
-        self.__connect()
-        self.__simple_command("chown {0} {1} {2}\n".format(
+        self._connect()
+        self._simple_command("chown {0} {1} {2}\n".format(
             quote(remote_path),
             int(uid),
             int(gid)))
-        self.__disconnect()
+        self._disconnect()
 
     def lchown(self, remote_path, uid, gid):
         """Changes the ownership of a file or directory.
@@ -1055,12 +1055,12 @@ class HTChirp:
 
         """
 
-        self.__connect()
-        self.__simple_command("lchown {0} {1} {2}\n".format(
+        self._connect()
+        self._simple_command("lchown {0} {1} {2}\n".format(
             quote(remote_path),
             int(uid),
             int(gid)))
-        self.__disconnect()
+        self._disconnect()
 
     def truncate(self, remote_path, length):
         """Truncates a file on the remote machine to a given number of bytes.
@@ -1070,11 +1070,11 @@ class HTChirp:
 
         """
 
-        self.__connect()
-        self.__simple_command("truncate {0} {1}\n".format(
+        self._connect()
+        self._simple_command("truncate {0} {1}\n".format(
             quote(remote_path),
             int(length)))
-        self.__disconnect()
+        self._disconnect()
 
     def utime(self, remote_path, actime, mtime):
         """Change the access and modification times of a file
@@ -1086,12 +1086,12 @@ class HTChirp:
 
         """
 
-        self.__connect()
-        self.__simple_command("utime {0} {1} {2}\n".format(
+        self._connect()
+        self._simple_command("utime {0} {1} {2}\n".format(
             quote(remote_path),
             int(actime),
             int(mtime)))
-        self.__disconnect()
+        self._disconnect()
 
     ## Chirp commands that are not implemented in HTCondor
 
@@ -1103,16 +1103,16 @@ class HTChirp:
     #
     #     """
     #
-    #     self.__connect()
-    #     self.__simple_command("getacl {0}\n".format(
+    #     self._connect()
+    #     self._simple_command("getacl {0}\n".format(
     #         quote(remote_path)))
     #     acl = []
     #     while True:
-    #         entry = self.__get_line_data().rstrip()
+    #         entry = self._get_line_data().rstrip()
     #         if entry == "":
     #             break
     #         acl.append(entry)
-    #     self.__disconnect()
+    #     self._disconnect()
     #     return acl
 
     # def setacl(self, remote_path, subject, rights):
@@ -1124,12 +1124,12 @@ class HTChirp:
     #
     #     """
     #
-    #     self.__connect()
-    #     self.__simple_command("setacl {0} {1} {2}\n".format(
+    #     self._connect()
+    #     self._simple_command("setacl {0} {1} {2}\n".format(
     #         quote(remote_path),
     #         quote(subject),
     #         quote(rights)))
-    #     self.__disconnect()
+    #     self._disconnect()
 
     # def md5(self, remote_path):
     #     """Checksum a file on the remote machine using MD5.
@@ -1139,10 +1139,10 @@ class HTChirp:
     #
     #     """
     #
-    #     self.__connect()
-    #     self.__simple_command("md5 {0}\n".format(
+    #     self._connect()
+    #     self._simple_command("md5 {0}\n".format(
     #         quote(remote_path)))
-    #     self.__disconnect()
+    #     self._disconnect()
 
     # def thirdput(self, remote_path, third_host, third_path):
     #     """Direct the remote machine to transfer the path to another ("third")
@@ -1157,12 +1157,12 @@ class HTChirp:
     #
     #     """
     #
-    #     self.__connect()
-    #     self.__simple_command("thirdput {0} {1} {2}\n".format(
+    #     self._connect()
+    #     self._simple_command("thirdput {0} {1} {2}\n".format(
     #         quote(remote_path),
     #         quote(third_host),
     #         quote(third_path)))
-    #     self.__disconnect()
+    #     self._disconnect()
 
     # def mkalloc(self, remote_path, size, mode):
     #     """Create a new space allocated on the remote machine at the given path.
@@ -1173,12 +1173,12 @@ class HTChirp:
     #
     #     """
     #
-    #     self.__connect()
-    #     self.__simple_command("mkalloc {0} {1} {2}\n".format(
+    #     self._connect()
+    #     self._simple_command("mkalloc {0} {1} {2}\n".format(
     #         quote(remote_path),
     #         int(size),
     #         int(mode)))
-    #     self.__disconnect()
+    #     self._disconnect()
 
     # def lsalloc(self, remote_path):
     #     """List the space allocation state on a directory on the remote machine.
@@ -1188,13 +1188,13 @@ class HTChirp:
     #
     #     """
     #
-    #     self.__connect()
-    #     self.__simple_command("lsalloc {0}\n".format(
+    #     self._connect()
+    #     self._simple_command("lsalloc {0}\n".format(
     #         quote(remote_path)))
-    #     result = self.__get_line_data()
-    #     self.__disconnect()
+    #     result = self._get_line_data()
+    #     self._disconnect()
     #     return tuple(result.split())
-
+            
 
     ## custom exceptions
 
