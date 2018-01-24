@@ -197,11 +197,12 @@ class HTChirp:
         # reset open file descriptors
         self.fds = {}
 
-    def _simple_command(self, cmd):
+    def _simple_command(self, cmd, get_response = True):
         """Send a command to the Chirp server
 
         :param cmd: The command to be sent
-        :returns: The response from the Chirp server
+        :param get_response: Check for a response and return it
+        :returns: The response from the Chirp server (if get_response is True)
         :raises InvalidRequest: If the command is invalid
         :raises RuntimeError: If the connection is broken
 
@@ -219,7 +220,8 @@ class HTChirp:
                 raise RuntimeError("Connection to the Chirp server is broken.")
             bytes_sent = bytes_sent + sent
 
-        return self._simple_response()
+        if get_response:
+            return self._simple_response()
 
     def _simple_response(self):
         """Get the response from the Chirp server after running a command
@@ -294,6 +296,8 @@ class HTChirp:
 
         """
 
+        length = int(length)
+        
         if output_file: # stream data to a file
             bytes_recv = 0
             chunk = b""
@@ -360,6 +364,9 @@ class HTChirp:
         file_info = (quote(name), ''.join(flags), int(mode))
         self.fds[fd] = file_info
 
+        # get stat
+        stat = self._get_line_data()
+
         return fd
 
     def _close(self, fd):
@@ -391,25 +398,25 @@ class HTChirp:
 
         if (offset, stride_length, stride_skip) == (None, None, None):
             # read
-            rb = self._simple_command("read {0} {1}\n".format(
+            rb = int(self._simple_command("read {0} {1}\n".format(
                 int(fd),
-                int(length)))
+                int(length))))
 
         elif (offset != None) and (stride_length, stride_skip) == (None, None):
             # pread
-            rb = self._simple_command("pread {0} {1} {2}\n".format(
+            rb = int(self._simple_command("pread {0} {1} {2}\n".format(
                 int(fd),
                 int(length),
-                int(offset)))
+                int(offset))))
 
         elif (stride_length, stride_skip) != (None, None):
             # sread
-            rb = self._simple_command("sread {0} {1} {2} {3} {4}\n".format(
+            rb = int(self._simple_command("sread {0} {1} {2} {3} {4}\n".format(
                 int(fd),
                 int(length),
                 int(offset),
                 int(stride_length),
-                int(stride_skip)))
+                int(stride_skip))))
 
         else:
             raise self.InvalidRequest(
@@ -438,16 +445,18 @@ class HTChirp:
 
         if (offset, stride_length, stride_skip) == (None, None, None):
             # write
-            wb = self._simple_command("write {0} {1}\n".format(
+            self._simple_command("write {0} {1}\n".format(
                 int(fd),
-                int(length)))
+                int(length)),
+         get_response = False)
 
         elif (offset != None) and (stride_length, stride_skip) == (None, None):
             # pwrite
-            wb = self._simple_command("pwrite {0} {1} {2}\n".format(
+            self._simple_command("pwrite {0} {1} {2}\n".format(
                 int(fd),
                 int(length),
-                int(offset)))
+                int(offset)),
+         get_response = False)
 
         elif (stride_length, stride_skip) != (None, None):
             # swrite
@@ -456,17 +465,19 @@ class HTChirp:
                 int(length),
                 int(offset),
                 int(stride_length),
-                int(stride_skip)))
+                int(stride_skip)),
+          get_response = False)
 
         else:
             raise self.InvalidRequest(
                 "Both stride_length and stride_skip must be specified")
 
         wfd = self._socket.makefile("wb") # open socket as a file object
-        wfd.write(data[:int(wb)]) # write up to wb bytes
+        wfd.write(data) # write data
         wfd.close() # close socket file object
 
-        return int(wb)
+        wb = int(self._simple_response()) # get bytes written
+        return wb
 
     def _fsync(self, fd):
         """Flush unwritten data to disk
@@ -515,6 +526,9 @@ class HTChirp:
         Specifying flags other than 'wct' (i.e. 'create or truncate file') when
         putting large files is not recommended as the entire file must be read
         into memory.
+
+        To put individual bytes into a file on the submit machine instead of
+        an entire file, see the write() method.
 
         :param local_file: Path to file to be sent from the execute machine
         :param remote_file: Path to file to be written to on the submit machine
@@ -800,7 +814,8 @@ class HTChirp:
     def putfile(self, local_file, remote_file, mode = None):
         """Store an entire file efficiently to the remote machine.
 
-        Note that this method will *not* append data to files.
+        This method will create or overwrite the file on the remote machine. If
+        you want to append to a file, use the write() method.
 
         :param local_file: Path to file to be sent from local machine
         :param remote_file: Path to file to be written to on remote machine
