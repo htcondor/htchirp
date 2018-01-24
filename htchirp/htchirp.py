@@ -967,8 +967,9 @@ class HTChirp:
         """
 
         self._connect()
-        length = self._simple_command("readlink {0}\n".format(
-            quote(remote_path)))
+        length = self._simple_command("readlink {0} {1}\n".format(
+            quote(remote_path),
+            self.__class__.CHIRP_LINE_MAX))
         result = self._get_fixed_data(length)
         self._disconnect()
 
@@ -1071,7 +1072,7 @@ class HTChirp:
         self._connect()
         self._simple_command("access {0} {1}\n".format(
             quote(remote_path),
-            mode_oct))
+            int(mode)))
         self._disconnect()
 
     def chmod(self, remote_path, mode):
