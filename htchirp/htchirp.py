@@ -3,12 +3,6 @@ import os
 import stat
 import socket
 
-# RFC 2396 quoting method (Chirp protocol 2 compliant, but not used)
-#try: # Python 3
-#    from urllib.parse import quote
-#except ImportError: # Python 2
-#    from urllib import quote
-
 # In the HTCondor implementation, this quoting method is used
 def quote(chirp_string):
     """
@@ -19,6 +13,7 @@ def quote(chirp_string):
 
     """
 
+    # '\\', ' ', '\n', '\t', '\r' must be escaped
     escape_chars = ["\\", " ", "\n", "\t", "\r"]
     escape_re = "(" + "|".join([re.escape(x) for x in escape_chars]) + ")"
     escape = re.compile(escape_re)
@@ -33,11 +28,6 @@ class HTChirp:
 
     Provides Chirp commands compatible with the HTCondor Chirp implementation.
 
-    Some commands have been renamed (and aliased) to follow the Chirp protocol:
-    fetch -> getfile
-    put -> putfile
-    remove -> unlink
-
     If the host and port of a Chirp server are not specified, you are assumed
     to be running in a HTCondor "+WantIOProxy = true" job and that
     $_CONDOR_SCRATCH_DIR/.chirp.config contains the host, port, and cookie for
@@ -47,9 +37,9 @@ class HTChirp:
 
     ## static reference variables
 
-    CHIRP_PROTOCOL_VERSION = 2
     CHIRP_LINE_MAX = 1024
-    CHIRP_AUTH_METHODS = ["cookie", "hostname", "unix", "kerberos", "globus"]
+    CHIRP_AUTH_METHODS = ["cookie"]
+    #CHIRP_AUTH_METHODS = ["cookie", "hostname", "unix", "kerberos", "globus"]
     DEFAULT_MODE = (
         (stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH) |
         (stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH) |
@@ -345,8 +335,7 @@ class HTChirp:
 
         :param name: Path to file
         :param flags: File open modes (one or more of 'rwatcx')
-        :param mode: Permission mode to set, in decimal (e.g. 511 or 0777). If
-            not specified, defaults to 0777
+        :param mode: Permission mode to set [default: 0777]
         :returns: File descriptor
 
         """
@@ -405,12 +394,14 @@ class HTChirp:
             rb = self._simple_command("read {0} {1}\n".format(
                 int(fd),
                 int(length)))
+
         elif (offset != None) and (stride_length, stride_skip) == (None, None):
             # pread
             rb = self._simple_command("pread {0} {1} {2}\n".format(
                 int(fd),
                 int(length),
                 int(offset)))
+
         elif (stride_length, stride_skip) != (None, None):
             # sread
             rb = self._simple_command("sread {0} {1} {2} {3} {4}\n".format(
@@ -419,6 +410,7 @@ class HTChirp:
                 int(offset),
                 int(stride_length),
                 int(stride_skip)))
+
         else:
             raise self.InvalidRequest(
                 "Both stride_length and stride_skip must be specified")
@@ -449,12 +441,14 @@ class HTChirp:
             wb = self._simple_command("write {0} {1}\n".format(
                 int(fd),
                 int(length)))
+
         elif (offset != None) and (stride_length, stride_skip) == (None, None):
             # pwrite
             wb = self._simple_command("pwrite {0} {1} {2}\n".format(
                 int(fd),
                 int(length),
                 int(offset)))
+
         elif (stride_length, stride_skip) != (None, None):
             # swrite
             wb = self._simple_command("swrite {0} {1} {2} {3} {4}\n".format(
@@ -463,6 +457,7 @@ class HTChirp:
                 int(offset),
                 int(stride_length),
                 int(stride_skip)))
+
         else:
             raise self.InvalidRequest(
                 "Both stride_length and stride_skip must be specified")
@@ -498,9 +493,64 @@ class HTChirp:
             int(whence)))
         return int(pos)
 
+
     ## public methods
 
     # HTCondor-specific methods
+
+    def fetch(self, remote_file, local_file):
+        """Copy a file from the submit machine to the execute machine.
+
+        :param remote_file: Path to file to be sent from the submit machine
+        :param local_file: Path to file to be written to on the execute machine
+        :returns: Bytes written
+
+        """
+
+        return self.getfile(remote_file, local_file)
+
+    def put(self, local_file, remote_file, flags = 'wct', mode = None):
+        """Copy a file from the execute machine to the submit machine.
+
+        Specifying flags other than 'wct' (i.e. 'create or truncate file') when
+        putting large files is not recommended as the entire file must be read
+        into memory.
+
+        :param local_file: Path to file to be sent from the execute machine
+        :param remote_file: Path to file to be written to on the submit machine
+        :param flags: File open modes (one or more of 'rwatcx') [default: 'wct']
+        :param mode: Permission mode to set [default: 0777]
+        :returns: Size of written file
+
+        """
+
+        flags = set(flags)
+
+        if flags == set("wct"):
+            # If default mode ('wct'), use putfile (efficient)
+            return self.putfile(local_file, remote_file, mode)
+
+        else:
+            # If non-default mode, have to read entire file (inefficient)
+            with open(local_file, "rb") as rfd:
+                data = rfd.read()
+            # And then use write
+            wb = self.write(data, remote_file, flags, mode)
+            # Better check how much data was written
+            if wb < len(data):
+                raise UserWarning(
+                    "Only {0} bytes of {1} bytes in {2} were written".format(
+                        wb, len(data), local_file))
+            return wb
+
+    def remove(self, remote_file):
+        """Remove a file from the submit machine.
+
+        :param remote_file: Path to file on the submit machine
+
+        """
+
+        self.unlink(remote_file)
 
     def get_job_attr(self, job_attribute):
         """Get the value of a job ClassAd attribute.
@@ -609,15 +659,16 @@ class HTChirp:
         """
 
         self._connect()
-        fd = self._open(remote_path, 'r')
+        fd = self._open(remote_path, "r")
         data = self._read(fd, length, offset, stride_length, stride_skip)
         self._close(fd)
         self._disconnect()
 
         return data
 
-    def write(self, data, remote_path, length = None,
-                  offset = None, stride_length = None, stride_skip = None):
+    def write(self, data, remote_path, flags = "w", mode = None,
+                  length = None, offset = None,
+                  stride_length = None, stride_skip = None):
         """Write bytes to a file on the remote matchine.
 
         Optionally, specify the number of bytes to write,
@@ -625,6 +676,8 @@ class HTChirp:
 
         :param data: Bytes to write
         :param remote_path: Path to file
+        :param flags: File open modes (one or more of 'rwatcx') [default: 'w']
+        :param mode: Permission mode to set [default: 0777]
         :param length: Number of bytes to write [default: len(data)]
         :param offset: Number of bytes to offset from beginning of file
         :param stride_length: Number of bytes to write per stride
@@ -633,11 +686,16 @@ class HTChirp:
 
         """
 
+        flags = set(flags)
+        if not ("w" in flags):
+            raise ValueError("'w' is not included in flags '{0}'".format(
+                "".join(flags)))
+
         if length == None:
             length = len(data)
 
         self._connect()
-        fd = self._open(remote_path, 'w')
+        fd = self._open(remote_path, flags, mode)
         bytes_sent = self._write(fd, data, length, offset,
                                       stride_length, stride_skip)
         self._fsync(fd) # force the file to be written to disk
@@ -674,9 +732,6 @@ class HTChirp:
             quote(remote_file)))
         self._disconnect()
 
-    # alias remove -> unlink
-    remove = unlink
-
     def rmdir(self, remote_path, recursive = False):
         """Delete a directory on the remote machine.
 
@@ -711,8 +766,7 @@ class HTChirp:
         """Create a new directory on the remote machine.
 
         :param remote_path: Path to new directory
-        :param mode: Permission mode to set, in decimal (e.g. 511 or 0777). If
-            not specified, defaults to 0777
+        :param mode: Permission mode to set [default: 0777]
 
         """
 
@@ -743,9 +797,6 @@ class HTChirp:
 
         return bytes_recv
 
-    # alias fetch -> getfile
-    fetch = getfile
-
     def putfile(self, local_file, remote_file, mode = None):
         """Store an entire file efficiently to the remote machine.
 
@@ -753,8 +804,7 @@ class HTChirp:
 
         :param local_file: Path to file to be sent from local machine
         :param remote_file: Path to file to be written to on remote machine
-        :param mode: Permission mode to set, in decimal (e.g. 511 or 0777). If
-            not specified, defaults to 0777
+        :param mode: Permission mode to set [default: 0777]
         :returns: Size of written file
 
         """
@@ -784,9 +834,6 @@ class HTChirp:
         self._disconnect()
 
         return bytes_sent
-
-    # alias put -> putfile
-    put = putfile
 
     def getlongdir(self, remote_path):
         """List a directory and all its file metadata on the remote machine.
@@ -988,7 +1035,7 @@ class HTChirp:
         """Check access permissions.
 
         :param remote_path: Path to examine
-        :param mode_str: Mode to check, a string of one or more of (frwx)
+        :param mode_str: Mode to check (one or more of 'frwx')
         :raises NotAuthorized: If any access mode is not authorized
 
         """
@@ -1016,7 +1063,7 @@ class HTChirp:
         """Change permission mode of a path on the remote machine.
 
         :param remote_path: Path
-        :param mode: Permission mode to set, in decimal (e.g. 511 or 0777)
+        :param mode: Permission mode to set
 
         """
 
@@ -1169,7 +1216,7 @@ class HTChirp:
     #
     #     :param remote_path: Path
     #     :param size: Size of allocation in bytes
-    #     :param mode: Permission mode to set, in decimal (e.g. 511 or 0777)
+    #     :param mode: Permission mode to set
     #
     #     """
     #
@@ -1194,7 +1241,7 @@ class HTChirp:
     #     result = self._get_line_data()
     #     self._disconnect()
     #     return tuple(result.split())
-            
+
 
     ## custom exceptions
 
