@@ -211,6 +211,7 @@ class HTChirp:
         # check the command
         if cmd[-1] != "\n":
             raise self.InvalidRequest("The form of the request is invalid.")
+        cmd = cmd.encode()
 
         # send the command
         bytes_sent = 0
@@ -234,13 +235,13 @@ class HTChirp:
         # build up the response one byte at a time
         response = b""
         chunk = b""
-        while chunk != "\n": # response terminated with \n
+        while chunk != b"\n": # response terminated with \n
             chunk = self._socket.recv(1)
             response += chunk
             # make sure response doesn't get too large
             if len(response) > self.__class__.CHIRP_LINE_MAX:
                 raise EnvironmentError("The server responded with too much data.")
-        response = response.rstrip()
+        response = response.decode().rstrip()
 
         # check the response code if an int is returned
         try:
@@ -330,9 +331,9 @@ class HTChirp:
         data = b""
         while True:
             data += self._socket.recv(self.__class__.CHIRP_LINE_MAX)
-            if (data[-1] == "\n"):
+            if (data[-1] == b"\n"):
                 break
-        return data
+        return data.decode()
 
     def _open(self, name, flags, mode = None):
         """Open a file on the Chirp server
@@ -577,10 +578,10 @@ class HTChirp:
         self._connect()
         length = int(self._simple_command("get_job_attr {0}\n".format(
             quote(job_attribute))))
-        result = self._get_fixed_data(length)
+        result = self._get_fixed_data(length).decode()
         self._disconnect()
 
-        return str(result)
+        return result
 
     def get_job_attr_delayed(self, job_attribute):
         """Get the value of a job ClassAd attribute from the local Starter.
@@ -595,10 +596,10 @@ class HTChirp:
         self._connect()
         length = int(self._simple_command("get_job_attr_delayed {0}\n".format(
             quote(job_attribute))))
-        result = self._get_fixed_data(length)
+        result = self._get_fixed_data(length).decode()
         self._disconnect()
 
-        return str(result)
+        return result
 
     def set_job_attr(self, job_attribute, attribute_value):
         """Set the value of a job ClassAd attribute.
@@ -864,7 +865,7 @@ class HTChirp:
         self._connect()
         length = int(self._simple_command("getlongdir {0}\n".format(
             quote(remote_path))))
-        result = self._get_fixed_data(length)
+        result = self._get_fixed_data(length).decode()
         self._disconnect()
 
         results = result.rstrip().split("\n")
@@ -888,7 +889,7 @@ class HTChirp:
             self._connect()
             length = int(self._simple_command("getdir {0}\n".format(
                 quote(remote_path))))
-            result = self._get_fixed_data(length)
+            result = self._get_fixed_data(length).decode()
             self._disconnect()
 
             files = result.rstrip().split("\n")
@@ -904,10 +905,10 @@ class HTChirp:
         self._connect()
         length = int(self._simple_command("whoami {0}\n".format(
             self.__class__.CHIRP_LINE_MAX)))
-        result = self._get_fixed_data(length)
+        result = self._get_fixed_data(length).decode()
         self._disconnect()
 
-        return str(result)
+        return result
 
     def whoareyou(self, remote_host):
         """Get the server's identity with respect to the remote host.
@@ -921,10 +922,10 @@ class HTChirp:
         length = int(self._simple_command("whoareyou {0} {1}\n".format(
             quote(remote_host),
             self.__class__.CHIRP_LINE_MAX)))
-        result = self._get_fixed_data(length)
+        result = self._get_fixed_data(length).decode()
         self._disconnect()
 
-        return str(result)
+        return result
 
     def link(self, old_path, new_path, symbolic = False):
         """Create a link on the remote machine.
@@ -1038,9 +1039,9 @@ class HTChirp:
         self._connect()
         response = self._simple_command("statfs {0}\n".format(
             quote(remote_path)))
-        result = str(self._get_line_data()).rstrip()
+        result = self._get_line_data().rstrip()
         while len(result.split()) < len(names):
-            result += (" " + str(self._get_line_data()).rstrip())
+            result += (" " + self._get_line_data().rstrip())
         self._disconnect()
 
         results = [int(x) for x in result.split()]
