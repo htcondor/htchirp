@@ -3,6 +3,13 @@ htchirp
 
 Pure Python Chirp client for HTCondor
 
+Installation
+---------
+
+The latest release is available on PyPI
+
+``pip install htchirp``
+
 Example Usage
 ------------
 
