@@ -24,9 +24,42 @@ def quote(chirp_string):
 
 
 class HTChirp:
+
+    """Chirp client provider for HTCondor
+
+    Provides a Chirp client compatible with the HTCondor Chirp implementation.
+
+    If the host and port of a Chirp server are not specified, you are assumed
+    to be running in a HTCondor "+WantIOProxy = true" job and that
+    $_CONDOR_SCRATCH_DIR/.chirp.config contains the host, port, and cookie for
+    connecting to the embedded chirp proxy.
+
+    :param host: the hostname or ip of the Chirp server
+    :param port: the port of the Chirp server
+    :param auth: a list of authentication methods to try
+    :param cookie: the cookie string, if trying cookie authentication
+    :param timeout: socket timeout, in seconds"""
+
+
+    def __init__(self, host = None, port = None,
+                     auth = ["cookie"], cookie = None, timeout = 10):
+        self.client = HTChirpClient(host, port, auth, cookie, timeout)
+
+    ## special methods
+
+    def __enter__(self):
+        """Establish a connection with the Chirp server"""
+        self.client.connect()
+        return self.client
+
+    def __exit__(self, *args):
+        """Close the connection with the Chirp server"""
+        self.client.disconnect()
+
+class HTChirpClient:
     """Chirp client for HTCondor
 
-    Provides Chirp commands compatible with the HTCondor Chirp implementation.
+    A Chirp client compatible with the HTCondor Chirp implementation.
 
     If the host and port of a Chirp server are not specified, you are assumed
     to be running in a HTCondor "+WantIOProxy = true" job and that
@@ -39,12 +72,10 @@ class HTChirp:
 
     CHIRP_LINE_MAX = 1024
     CHIRP_AUTH_METHODS = ["cookie"]
-    #CHIRP_AUTH_METHODS = ["cookie", "hostname", "unix", "kerberos", "globus"]
     DEFAULT_MODE = (
         (stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH) |
         (stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH) |
         (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH) )
-
 
     ## initialize
 
@@ -69,8 +100,7 @@ class HTChirp:
 
         chirp_config = ".chirp.config"
         try:
-            chirp_config = os.path.join(
-                os.environ["_CONDOR_SCRATCH_DIR"], chirp_config)
+            chirp_config = os.path.join(os.environ["_CONDOR_SCRATCH_DIR"], chirp_config)
         except KeyError:
             pass
 
@@ -86,82 +116,47 @@ class HTChirp:
                 print("Error reading {0}".format(chirp_config))
                 raise
         else:
-            raise ValueError((".chirp.config must be present "
-                                  "or you must provide a host and port"))
+            raise ValueError((".chirp.config must be present or you must provide a host and port"))
 
         # store connection parameters
-        self._host = host
-        self._port = int(port)
-        self._cookie = cookie
-        self._timeout = timeout
+        self.host = host
+        self.port = int(port)
+        self.cookie = cookie
+        self.timeout = timeout
 
         # connect and store authentication method
-        self._authentication = None
+        self.authentication = None
         for auth_method in auth:
             try:
-                self._connect(auth_method)
+                self.connect(auth_method)
             except self.NotAuthenticated:
-                self._disconnect()
+                self.disconnect()
             except NotImplementedError:
-                self._disconnect()
+                self.disconnect()
                 raise
             else:
-                self._disconnect()
-                self._authentication = auth_method
+                self.disconnect()
+                self.authentication = auth_method
                 break
-        if self._authentication == None:
+        if self.authentication == None:
             raise self.NotAuthenticated(
                 "Could not authenticate with methods {0}".format(auth))
 
-
-    ## special methods
+    # special methods
 
     def __del__(self):
         """Disconnect from the Chirp server when this object goes away"""
-        self._disconnect()
+        self.disconnect()
 
     def __repr__(self):
         """Print a representation of this object"""
         return "{0}({1}, {2}) using {3} authentication".format(
             self.__class__.__name__,
-            self._host,
-            self._port,
-            self._authentication)
+            self.host,
+            self.port,
+            self.authentication)       
 
-
-    ## internal methods
-
-    def _connect(self, auth_method = None):
-        """Connect to and authenticate with the Chirp server
-
-        :param auth_method: If set, try the specific authentication method
-
-        """
-
-        if not auth_method:
-            auth_method = self._authentication
-
-        # close the socket if it is open and exists
-        try:
-            self._socket.getsockname()
-        except (NameError, AttributeError):
-            pass # socket object does not exist
-        except socket.error:
-            pass # socket exists but is closed
-        else:
-            # socket exists and is connected
-            self._disconnect()
-
-        # create the socket
-        self._socket = socket.socket()
-        self._socket.settimeout(self._timeout)
-
-        # connect and authenticate
-        self._socket.connect((self._host, self._port))
-        self._authenticate(auth_method)
-
-        # reset open file descriptors
-        self.fds = {}
+    ## internal methods      
 
     def _authenticate(self, method):
         """Test authentication method
@@ -171,31 +166,17 @@ class HTChirp:
         """
 
         if method == "cookie":
-            response = self._simple_command("cookie {0}\n".format(
-                self._cookie))
+            response = self._simple_command("cookie {0}\n".format(self.cookie))
             if not (str(response) == "0"):
-                raise self.NotAuthenticated(
-                    "Could not authenticate using {0}".format(method))
+                raise self.NotAuthenticated("Could not authenticate using {0}".format(method))
         elif method in self.__class__.CHIRP_AUTH_METHODS:
-            raise NotImplementedError(
-                "Auth method '{0}' not implemented in this client".format(
-                    method))
+            raise NotImplementedError("Auth method '{0}' not implemented in this client".format(method))
         else:
-            raise ValueError("Unknown authentication method '{0}'".format(
-                method))
+            raise ValueError("Unknown authentication method '{0}'".format(method))
 
-    def _disconnect(self):
-        """Close connection with the Chirp server"""
-
-        try:
-            self._socket.close()
-        except socket.error:
-            pass
-        except (NameError, AttributeError):
-            pass
-
-        # reset open file descriptors
-        self.fds = {}
+    def _check_connection(self):
+        if not self.is_connected():
+            raise RuntimeError("The Chirp client is not connected to a Chirp server.")
 
     def _simple_command(self, cmd, get_response = True):
         """Send a command to the Chirp server
@@ -208,6 +189,9 @@ class HTChirp:
 
         """
 
+        # check that client is connected
+        self._check_connection()
+        
         # check the command
         if cmd[-1] != "\n":
             raise self.InvalidRequest("The form of the request is invalid.")
@@ -216,7 +200,7 @@ class HTChirp:
         # send the command
         bytes_sent = 0
         while bytes_sent < len(cmd):
-            sent = self._socket.send(cmd[bytes_sent:])
+            sent = self.socket.send(cmd[bytes_sent:])
             if sent == 0:
                 raise RuntimeError("Connection to the Chirp server is broken.")
             bytes_sent = bytes_sent + sent
@@ -232,11 +216,14 @@ class HTChirp:
 
         """
 
+        # check that client is connected
+        self._check_connection()
+        
         # build up the response one byte at a time
         response = b""
         chunk = b""
         while chunk != b"\n": # response terminated with \n
-            chunk = self._socket.recv(1)
+            chunk = self.socket.recv(1)
             response += chunk
             # make sure response doesn't get too large
             if len(response) > self.__class__.CHIRP_LINE_MAX:
@@ -297,6 +284,9 @@ class HTChirp:
 
         """
 
+        # check that client is connected
+        self._check_connection()
+
         length = int(length)
         
         if output_file: # stream data to a file
@@ -304,7 +294,7 @@ class HTChirp:
             chunk = b""
             with open(output_file, "wb") as fd:
                 while bytes_recv < length:
-                    chunk = self._socket.recv(self.__class__.CHIRP_LINE_MAX)
+                    chunk = self.socket.recv(self.__class__.CHIRP_LINE_MAX)
                     fd.write(chunk)
                     bytes_recv += len(chunk)
             return bytes_recv
@@ -313,7 +303,7 @@ class HTChirp:
             data = b""
             chunk = b""
             while len(data) < length:
-                chunk = self._socket.recv(self.__class__.CHIRP_LINE_MAX)
+                chunk = self.socket.recv(self.__class__.CHIRP_LINE_MAX)
                 data += chunk
             return data
 
@@ -328,9 +318,12 @@ class HTChirp:
 
         """
 
+        # check that client is connected
+        self._check_connection()
+        
         data = b""
         while True:
-            data += self._socket.recv(self.__class__.CHIRP_LINE_MAX)
+            data += self.socket.recv(self.__class__.CHIRP_LINE_MAX)
             if (data[-1] == b"\n"):
                 break
         return data.decode()
@@ -441,6 +434,9 @@ class HTChirp:
 
         """
 
+        # check that client is connected
+        self._check_connection()
+
         if offset == None and (stride_length, stride_skip) != (None, None):
             offset = 0 # assume offset is 0 if stride given but not offset
 
@@ -470,10 +466,9 @@ class HTChirp:
           get_response = False)
 
         else:
-            raise self.InvalidRequest(
-                "Both stride_length and stride_skip must be specified")
+            raise self.InvalidRequest("Both stride_length and stride_skip must be specified")
 
-        wfd = self._socket.makefile("wb") # open socket as a file object
+        wfd = self.socket.makefile("wb") # open socket as a file object
         wfd.write(data) # write data
         wfd.close() # close socket file object
 
@@ -508,6 +503,57 @@ class HTChirp:
 
     ## public methods
 
+    def is_connected(self):
+        """Check if Chirp client is connected."""
+
+        # check if the socket is open and exists
+        try:
+            self.socket.getsockname()
+        except (NameError, AttributeError):
+            return False
+        except socket.error:
+            return False
+
+        return True
+
+    def connect(self, auth_method = None):
+        """Connect to and authenticate with the Chirp server
+
+        :param auth_method: If set, try the specific authentication method
+
+        """
+
+        if not auth_method:
+            auth_method = self.authentication
+
+        # reconnect if already connected
+        if self.is_connected():
+            self.disconnect()
+
+        # create the socket
+        self.socket = socket.socket()
+        self.socket.settimeout(self.timeout)
+
+        # connect and authenticate
+        self.socket.connect((self.host, self.port))
+        self._authenticate(auth_method)
+
+        # reset open file descriptors
+        self.fds = {}
+
+    def disconnect(self):
+        """Close connection with the Chirp server"""
+
+        try:
+            self.socket.close()
+        except socket.error:
+            pass
+        except (NameError, AttributeError):
+            pass
+
+        # reset open file descriptors
+        self.fds = {}
+
     # HTCondor-specific methods
 
     def fetch(self, remote_file, local_file):
@@ -520,6 +566,7 @@ class HTChirp:
         """
 
         return self.getfile(remote_file, local_file)
+
 
     def put(self, local_file, remote_file, flags = 'wct', mode = None):
         """Copy a file from the execute machine to the submit machine.
@@ -554,10 +601,10 @@ class HTChirp:
             # Better check how much data was written
             if wb < len(data):
                 raise UserWarning(
-                    "Only {0} bytes of {1} bytes in {2} were written".format(
-                        wb, len(data), local_file))
+                    "Only {0} bytes of {1} bytes in {2} were written".format(wb, len(data), local_file))
             return wb
 
+        
     def remove(self, remote_file):
         """Remove a file from the submit machine.
 
@@ -566,6 +613,7 @@ class HTChirp:
         """
 
         self.unlink(remote_file)
+        
 
     def get_job_attr(self, job_attribute):
         """Get the value of a job ClassAd attribute.
@@ -574,15 +622,13 @@ class HTChirp:
         :returns: The value of the job attribute as a string
 
         """
-
-        self._connect()
-        length = int(self._simple_command("get_job_attr {0}\n".format(
-            quote(job_attribute))))
+        
+        length = int(self._simple_command("get_job_attr {0}\n".format(quote(job_attribute))))
         result = self._get_fixed_data(length).decode()
-        self._disconnect()
 
         return result
 
+    
     def get_job_attr_delayed(self, job_attribute):
         """Get the value of a job ClassAd attribute from the local Starter.
 
@@ -592,15 +638,13 @@ class HTChirp:
         :returns: The value of the job attribute as a string
 
         """
-
-        self._connect()
-        length = int(self._simple_command("get_job_attr_delayed {0}\n".format(
-            quote(job_attribute))))
+        
+        length = int(self._simple_command("get_job_attr_delayed {0}\n".format(quote(job_attribute))))
         result = self._get_fixed_data(length).decode()
-        self._disconnect()
 
         return result
 
+    
     def set_job_attr(self, job_attribute, attribute_value):
         """Set the value of a job ClassAd attribute.
 
@@ -608,12 +652,11 @@ class HTChirp:
         :param attribute_value: The job attribute's new value
 
         """
-
-        self._connect()
+        
         self._simple_command("set_job_attr {0} {1}\n".format(
             quote(job_attribute),
             quote(attribute_value)))
-        self._disconnect()
+        
 
     def set_job_attr_delayed(self, job_attribute, attribute_value):
         """Set the value of a job ClassAd attribute.
@@ -626,11 +669,11 @@ class HTChirp:
         :param attribute_value: The job attribute's new value
 
         """
-        self._connect()
+        
         self._simple_command("set_job_attr_delayed {0} {1}\n".format(
             quote(job_attribute),
             quote(attribute_value)))
-        self._disconnect()
+        
 
     def ulog(self, text):
         """Log a generic string to the job log.
@@ -638,11 +681,9 @@ class HTChirp:
         :param text: String to log
 
         """
-
-        self._connect()
-        self._simple_command("ulog {0}\n".format(
-            quote(text)))
-        self._disconnect()
+        
+        self._simple_command("ulog {0}\n".format(quote(text)))
+        
 
     def phase(self, phasestring):
         """Tell HTCondor that the job is changing phases.
@@ -650,11 +691,9 @@ class HTChirp:
         :param phasestring: New phase
 
         """
-
-        self._connect()
-        self._simple_command("phase {0}\n".format(
-            quote(phasestring)))
-        self._disconnect()
+        
+        self._simple_command("phase {0}\n".format(quote(phasestring)))
+        
 
     # Wrappers around methods that use a file descriptor
 
@@ -672,12 +711,10 @@ class HTChirp:
         :returns: Data read from file
 
         """
-
-        self._connect()
+        
         fd = self._open(remote_path, "r")
         data = self._read(fd, length, offset, stride_length, stride_skip)
         self._close(fd)
-        self._disconnect()
 
         return data
 
@@ -703,19 +740,16 @@ class HTChirp:
 
         flags = set(flags)
         if not ("w" in flags):
-            raise ValueError("'w' is not included in flags '{0}'".format(
-                "".join(flags)))
+            raise ValueError("'w' is not included in flags '{0}'".format("".join(flags)))
 
         if length == None:
             length = len(data)
 
-        self._connect()
+        
         fd = self._open(remote_path, flags, mode)
-        bytes_sent = self._write(fd, data, length, offset,
-                                      stride_length, stride_skip)
+        bytes_sent = self._write(fd, data, length, offset, stride_length, stride_skip)
         self._fsync(fd) # force the file to be written to disk
         self._close(fd)
-        self._disconnect()
 
         return bytes_sent
 
@@ -729,11 +763,8 @@ class HTChirp:
 
         """
 
-        self._connect()
-        self._simple_command("rename {0} {1}\n".format(
-            quote(old_path),
-            quote(new_path)))
-        self._disconnect()
+        self._simple_command("rename {0} {1}\n".format(quote(old_path), quote(new_path)))
+        
 
     def unlink(self, remote_file):
         """Delete a file on the remote machine.
@@ -741,11 +772,9 @@ class HTChirp:
         :param remote_file: Path to file
 
         """
-
-        self._connect()
-        self._simple_command("unlink {0}\n".format(
-            quote(remote_file)))
-        self._disconnect()
+        
+        self._simple_command("unlink {0}\n".format(quote(remote_file)))
+        
 
     def rmdir(self, remote_path, recursive = False):
         """Delete a directory on the remote machine.
@@ -760,10 +789,9 @@ class HTChirp:
         if recursive == True:
             self.rmall(remote_path)
         else:
-            self._connect()
-            self._simple_command("rmdir {0}\n".format(
-                quote(remote_path)))
-            self._disconnect()
+            
+            self._simple_command("rmdir {0}\n".format(quote(remote_path)))
+            
 
     def rmall(self, remote_path):
         """Recursively delete an entire directory on the remote machine.
@@ -771,11 +799,10 @@ class HTChirp:
         :param remote_path: Path to directory
 
         """
-
-        self._connect()
+        
         self._simple_command("rmall {0}\n".format(
             quote(remote_path)))
-        self._disconnect()
+        
 
     def mkdir(self, remote_path, mode = None):
         """Create a new directory on the remote machine.
@@ -788,12 +815,9 @@ class HTChirp:
         # set the default permission
         if mode == None:
             mode = self.__class__.DEFAULT_MODE
-
-        self._connect()
-        self._simple_command("mkdir {0} {1}\n".format(
-            quote(remote_path),
-            int(mode)))
-        self._disconnect()
+        
+        self._simple_command("mkdir {0} {1}\n".format(quote(remote_path), int(mode)))
+        
 
     def getfile(self, remote_file, local_file):
         """Retrieve an entire file efficiently from the remote machine.
@@ -803,14 +827,12 @@ class HTChirp:
         :returns: Bytes written
 
         """
-
-        self._connect()
-        length = int(self._simple_command("getfile {0}\n".format(
-            quote(remote_file))))
+        
+        length = int(self._simple_command("getfile {0}\n".format(quote(remote_file))))
         bytes_recv = self._get_fixed_data(length, local_file)
-        self._disconnect()
 
         return bytes_recv
+    
 
     def putfile(self, local_file, remote_file, mode = None):
         """Store an entire file efficiently to the remote machine.
@@ -825,6 +847,9 @@ class HTChirp:
 
         """
 
+        # check that client is connected
+        self._check_connection()
+        
         # set the default permission
         if mode == None:
             mode = self.__class__.DEFAULT_MODE
@@ -834,12 +859,12 @@ class HTChirp:
         bytes_sent = 0
 
         # send the file
-        self._connect()
+        
         self._simple_command("putfile {0} {1} {2}\n".format(
             quote(remote_file),
             int(mode),
             int(length)))
-        wfd = self._socket.makefile("wb") # open socket as a file object
+        wfd = self.socket.makefile("wb") # open socket as a file object
         with open(local_file, "rb") as rfd:
             data = rfd.read(self.__class__.CHIRP_LINE_MAX)
             while data: # write to socket CHIRP_LINE_MAX bytes at a time
@@ -847,9 +872,9 @@ class HTChirp:
                 bytes_sent += len(data)
                 data = rfd.read(self.__class__.CHIRP_LINE_MAX)
         wfd.close()
-        self._disconnect()
 
         return bytes_sent
+    
 
     def getlongdir(self, remote_path):
         """List a directory and all its file metadata on the remote machine.
@@ -861,18 +886,15 @@ class HTChirp:
 
         names = ["device", "inode", "mode", "nlink", "uid", "gid", "rdevice"
                      "size", "blksize", "blocks", "atime", "mtime", "ctime"]
-
-        self._connect()
-        length = int(self._simple_command("getlongdir {0}\n".format(
-            quote(remote_path))))
+        
+        length = int(self._simple_command("getlongdir {0}\n".format(quote(remote_path))))
         result = self._get_fixed_data(length).decode()
-        self._disconnect()
 
         results = result.rstrip().split("\n")
         files = results[::2]
-        stat_dicts = [dict(zip(names, [int(x) for x in s.split()]))
-                          for s in results[1::2]]
+        stat_dicts = [dict(zip(names, [int(x) for x in s.split()])) for s in results[1::2]]
         return dict(zip(files, stat_dicts))
+    
 
     def getdir(self, remote_path, stat_dict = False):
         """List a directory on the remote machine.
@@ -886,14 +908,13 @@ class HTChirp:
         if stat_dict == True:
             return getlongdir(remote_path)
         else:
-            self._connect()
-            length = int(self._simple_command("getdir {0}\n".format(
-                quote(remote_path))))
+            
+            length = int(self._simple_command("getdir {0}\n".format(quote(remote_path))))
             result = self._get_fixed_data(length).decode()
-            self._disconnect()
 
             files = result.rstrip().split("\n")
             return files
+        
 
     def whoami(self):
         """Get the user's current identity with respect to this server.
@@ -901,14 +922,12 @@ class HTChirp:
         :returns: The user's identity
 
         """
-
-        self._connect()
-        length = int(self._simple_command("whoami {0}\n".format(
-            self.__class__.CHIRP_LINE_MAX)))
+        
+        length = int(self._simple_command("whoami {0}\n".format(self.__class__.CHIRP_LINE_MAX)))
         result = self._get_fixed_data(length).decode()
-        self._disconnect()
 
         return result
+    
 
     def whoareyou(self, remote_host):
         """Get the server's identity with respect to the remote host.
@@ -918,14 +937,13 @@ class HTChirp:
 
         """
 
-        self._connect()
         length = int(self._simple_command("whoareyou {0} {1}\n".format(
             quote(remote_host),
             self.__class__.CHIRP_LINE_MAX)))
         result = self._get_fixed_data(length).decode()
-        self._disconnect()
 
         return result
+    
 
     def link(self, old_path, new_path, symbolic = False):
         """Create a link on the remote machine.
@@ -939,11 +957,9 @@ class HTChirp:
         if symbolic:
             self.symlink(old_path, new_path)
         else:
-            self._connect()
-            self._simple_command("link {0} {1}\n".format(
-                quote(old_path),
-                quote(new_path)))
-            self._disconnect()
+            
+            self._simple_command("link {0} {1}\n".format(quote(old_path), quote(new_path)))
+            
 
     def symlink(self, old_path, new_path):
         """Create a symbolic link on the remote machine.
@@ -953,11 +969,8 @@ class HTChirp:
 
         """
 
-        self._connect()
-        self._simple_command("symlink {0} {1}\n".format(
-            quote(old_path),
-            quote(new_path)))
-        self._disconnect()
+        self._simple_command("symlink {0} {1}\n".format(quote(old_path), quote(new_path)))
+        
 
     def readlink(self, remote_path):
         """Read the contents of a symbolic link.
@@ -967,12 +980,10 @@ class HTChirp:
 
         """
 
-        self._connect()
         length = self._simple_command("readlink {0} {1}\n".format(
             quote(remote_path),
             self.__class__.CHIRP_LINE_MAX))
         result = self._get_fixed_data(length)
-        self._disconnect()
 
         return result
 
@@ -988,17 +999,15 @@ class HTChirp:
 
         names = ["device", "inode", "mode", "nlink", "uid", "gid", "rdevice",
                      "size", "blksize", "blocks", "atime", "mtime", "ctime"]
-
-        self._connect()
-        response = self._simple_command("stat {0}\n".format(
-            quote(remote_path)))
+        
+        response = self._simple_command("stat {0}\n".format(quote(remote_path)))
         result = str(self._get_line_data()).rstrip()
         while len(result.split()) < len(names):
             result += (" " + str(self._get_line_data()).rstrip())
-        self._disconnect()
-
+        
         results = [int(x) for x in result.split()]
         return dict(zip(names, results))
+    
 
     def lstat(self, remote_path):
         """Get metadata for file on the remote machine.
@@ -1012,18 +1021,16 @@ class HTChirp:
 
         names = ["device", "inode", "mode", "nlink", "uid", "gid", "rdevice",
                      "size", "blksize", "blocks", "atime", "mtime", "ctime"]
-
-        self._connect()
-        response = self._simple_command("lstat {0}\n".format(
-            quote(remote_path)))
+        
+        response = self._simple_command("lstat {0}\n".format(quote(remote_path)))
         result = str(self._get_line_data()).rstrip()
         while len(result.split()) < len(names):
             result += (" " + str(self._get_line_data()).rstrip())
-        self._disconnect()
 
         results = [int(x) for x in result.split()]
         stats = dict(zip(names, results))
         return stats
+    
 
     def statfs(self, remote_path):
         """Get metadata for a file system on the remote machine.
@@ -1036,18 +1043,18 @@ class HTChirp:
         names = ["type", "bsize", "blocks", "bfree", "bavail", "files", "free"]
         names = ["f_" + x for x in names]
 
-        self._connect()
-        response = self._simple_command("statfs {0}\n".format(
-            quote(remote_path)))
+        
+        response = self._simple_command("statfs {0}\n".format(quote(remote_path)))
         result = self._get_line_data().rstrip()
         while len(result.split()) < len(names):
             result += (" " + self._get_line_data().rstrip())
-        self._disconnect()
+        
 
         results = [int(x) for x in result.split()]
         stats = dict(zip(names, results))
         return stats
 
+    
     def access(self, remote_path, mode_str):
         """Check access permissions.
 
@@ -1070,11 +1077,9 @@ class HTChirp:
                 raise ValueError("mode '{0}' not in (fxwr)".format(m))
             mode = mode | modes[m]
 
-        self._connect()
-        self._simple_command("access {0} {1}\n".format(
-            quote(remote_path),
-            int(mode)))
-        self._disconnect()
+        
+        self._simple_command("access {0} {1}\n".format(quote(remote_path), int(mode)))
+        
 
     def chmod(self, remote_path, mode):
         """Change permission mode of a path on the remote machine.
@@ -1083,12 +1088,9 @@ class HTChirp:
         :param mode: Permission mode to set
 
         """
-
-        self._connect()
-        self._simple_command("chmod {0} {1}\n".format(
-            quote(remote_path),
-            int(mode)))
-        self._disconnect()
+        
+        self._simple_command("chmod {0} {1}\n".format(quote(remote_path), int(mode)))
+        
 
     def chown(self, remote_path, uid, gid):
         """Change the UID and/or GID of a path on the remote machine.
@@ -1100,13 +1102,12 @@ class HTChirp:
         :param gid: GID
 
         """
-
-        self._connect()
+        
         self._simple_command("chown {0} {1} {2}\n".format(
             quote(remote_path),
             int(uid),
             int(gid)))
-        self._disconnect()
+        
 
     def lchown(self, remote_path, uid, gid):
         """Changes the ownership of a file or directory.
@@ -1118,13 +1119,12 @@ class HTChirp:
         :param gid: GID
 
         """
-
-        self._connect()
+        
         self._simple_command("lchown {0} {1} {2}\n".format(
             quote(remote_path),
             int(uid),
             int(gid)))
-        self._disconnect()
+        
 
     def truncate(self, remote_path, length):
         """Truncates a file on the remote machine to a given number of bytes.
@@ -1133,12 +1133,9 @@ class HTChirp:
         :param length: Truncated length
 
         """
-
-        self._connect()
-        self._simple_command("truncate {0} {1}\n".format(
-            quote(remote_path),
-            int(length)))
-        self._disconnect()
+        
+        self._simple_command("truncate {0} {1}\n".format(quote(remote_path), int(length)))
+        
 
     def utime(self, remote_path, actime, mtime):
         """Change the access and modification times of a file
@@ -1149,115 +1146,11 @@ class HTChirp:
         :param mtime: Modification time, in seconds (Unix epoch)
 
         """
-
-        self._connect()
+        
         self._simple_command("utime {0} {1} {2}\n".format(
             quote(remote_path),
             int(actime),
             int(mtime)))
-        self._disconnect()
-
-    ## Chirp commands that are not implemented in HTCondor
-
-    # def getacl(self, remote_path):
-    #     """Get an access control list.
-    #
-    #     :param remote_path: Path to examine
-    #     :returns: List with each entry of the access control list
-    #
-    #     """
-    #
-    #     self._connect()
-    #     self._simple_command("getacl {0}\n".format(
-    #         quote(remote_path)))
-    #     acl = []
-    #     while True:
-    #         entry = self._get_line_data().rstrip()
-    #         if entry == "":
-    #             break
-    #         acl.append(entry)
-    #     self._disconnect()
-    #     return acl
-
-    # def setacl(self, remote_path, subject, rights):
-    #     """Modify an access control list on an object on the remote machine.
-    #
-    #     :param remote_path: Path to modify
-    #     :param subject: Subject
-    #     :param rights: Rights ("-" for no rights)
-    #
-    #     """
-    #
-    #     self._connect()
-    #     self._simple_command("setacl {0} {1} {2}\n".format(
-    #         quote(remote_path),
-    #         quote(subject),
-    #         quote(rights)))
-    #     self._disconnect()
-
-    # def md5(self, remote_path):
-    #     """Checksum a file on the remote machine using MD5.
-    #
-    #     :param remote_path: Path to file
-    #     :returns: A string containing the md5 hash
-    #
-    #     """
-    #
-    #     self._connect()
-    #     self._simple_command("md5 {0}\n".format(
-    #         quote(remote_path)))
-    #     self._disconnect()
-
-    # def thirdput(self, remote_path, third_host, third_path):
-    #     """Direct the remote machine to transfer the path to another ("third")
-    #     remote host and path.
-    #
-    #     If the indicated path is a directory, it will be transferred recursively,
-    #     preserving metadata such as access control lists.
-    #
-    #     :param remote_path: Path to transfer from the remote machine
-    #     :param third_host: Host to transfer to
-    #     :param third_path: Path to transfer to on the third machine
-    #
-    #     """
-    #
-    #     self._connect()
-    #     self._simple_command("thirdput {0} {1} {2}\n".format(
-    #         quote(remote_path),
-    #         quote(third_host),
-    #         quote(third_path)))
-    #     self._disconnect()
-
-    # def mkalloc(self, remote_path, size, mode):
-    #     """Create a new space allocated on the remote machine at the given path.
-    #
-    #     :param remote_path: Path
-    #     :param size: Size of allocation in bytes
-    #     :param mode: Permission mode to set
-    #
-    #     """
-    #
-    #     self._connect()
-    #     self._simple_command("mkalloc {0} {1} {2}\n".format(
-    #         quote(remote_path),
-    #         int(size),
-    #         int(mode)))
-    #     self._disconnect()
-
-    # def lsalloc(self, remote_path):
-    #     """List the space allocation state on a directory on the remote machine.
-    #
-    #     :param remote_path: Path
-    #     :returns: Tuple containing the path, size, and mode of the allocation
-    #
-    #     """
-    #
-    #     self._connect()
-    #     self._simple_command("lsalloc {0}\n".format(
-    #         quote(remote_path)))
-    #     result = self._get_line_data()
-    #     self._disconnect()
-    #     return tuple(result.split())
 
 
     ## custom exceptions
