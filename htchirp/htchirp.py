@@ -24,39 +24,6 @@ def quote(chirp_string):
 
 
 class HTChirp:
-
-    """Chirp client provider for HTCondor
-
-    Provides a Chirp client compatible with the HTCondor Chirp implementation.
-
-    If the host and port of a Chirp server are not specified, you are assumed
-    to be running in a HTCondor "+WantIOProxy = true" job and that
-    $_CONDOR_SCRATCH_DIR/.chirp.config contains the host, port, and cookie for
-    connecting to the embedded chirp proxy.
-
-    :param host: the hostname or ip of the Chirp server
-    :param port: the port of the Chirp server
-    :param auth: a list of authentication methods to try
-    :param cookie: the cookie string, if trying cookie authentication
-    :param timeout: socket timeout, in seconds"""
-
-
-    def __init__(self, host = None, port = None,
-                     auth = ["cookie"], cookie = None, timeout = 10):
-        self.client = HTChirpClient(host, port, auth, cookie, timeout)
-
-    ## special methods
-
-    def __enter__(self):
-        """Establish a connection with the Chirp server"""
-        self.client.connect()
-        return self.client
-
-    def __exit__(self, *args):
-        """Close the connection with the Chirp server"""
-        self.client.disconnect()
-
-class HTChirpClient:
     """Chirp client for HTCondor
 
     A Chirp client compatible with the HTCondor Chirp implementation.
@@ -143,6 +110,15 @@ class HTChirpClient:
                 "Could not authenticate with methods {0}".format(auth))
 
     # special methods
+
+    def __enter__(self):
+        """Establish a connection with the Chirp server"""
+        self.connect()
+        return self
+
+    def __exit__(self, *args):
+        """Close the connection with the Chirp server"""
+        self.disconnect()
 
     def __del__(self):
         """Disconnect from the Chirp server when this object goes away"""
