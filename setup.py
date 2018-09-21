@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='htchirp',
-    version='0.2',
+    version='1.0',
     description='Pure Python Chirp client for HTCondor',
     keywords='htcondor chirp',
     url='https://github.com/htcondor/htchirp',
