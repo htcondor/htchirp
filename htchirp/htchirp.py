@@ -300,7 +300,7 @@ class HTChirp:
         data = b""
         while True:
             data += self.socket.recv(self.__class__.CHIRP_LINE_MAX)
-            if (data[-1] == b"\n"):
+            if (data.decode()[-1] == "\n"):
                 break
         return data.decode()
 
