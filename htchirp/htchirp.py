@@ -904,7 +904,7 @@ class HTChirp:
         """
 
         if stat_dict == True:
-            return getlongdir(remote_path)
+            return self.getlongdir(remote_path)
         else:
 
             length = int(self._simple_command("getdir {0}\n".format(quote(remote_path))))
