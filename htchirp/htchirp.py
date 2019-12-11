@@ -882,7 +882,7 @@ class HTChirp:
 
         """
 
-        names = ["device", "inode", "mode", "nlink", "uid", "gid", "rdevice"
+        names = ["device", "inode", "mode", "nlink", "uid", "gid", "rdevice",
                      "size", "blksize", "blocks", "atime", "mtime", "ctime"]
 
         length = int(self._simple_command("getlongdir {0}\n".format(quote(remote_path))))
