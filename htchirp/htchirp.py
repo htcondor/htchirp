@@ -1086,7 +1086,7 @@ class HTChirp:
 
         """
 
-        self._simple_command("chmod {0} {1}\n".format(quote(remote_path), int(mode)))
+        self._simple_command("chmod {0} {1}\n".format(quote(remote_path), int(mode, 8)))
 
 
     def chown(self, remote_path, uid, gid):
