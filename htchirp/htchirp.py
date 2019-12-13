@@ -882,7 +882,7 @@ class HTChirp:
 
         """
 
-        names = ["device", "inode", "mode", "nlink", "uid", "gid", "rdevice"
+        names = ["device", "inode", "mode", "nlink", "uid", "gid", "rdevice",
                      "size", "blksize", "blocks", "atime", "mtime", "ctime"]
 
         length = int(self._simple_command("getlongdir {0}\n".format(quote(remote_path))))
@@ -904,7 +904,7 @@ class HTChirp:
         """
 
         if stat_dict == True:
-            return getlongdir(remote_path)
+            return self.getlongdir(remote_path)
         else:
 
             length = int(self._simple_command("getdir {0}\n".format(quote(remote_path))))
