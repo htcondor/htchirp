@@ -10,9 +10,6 @@ from datetime import datetime
 # When defining a new function, please refer to an existing one as a model.
 # All functions should implement both interactive and non-interactive parameter input.
 
-# Functions take arguments from the command line when True
-interactive = False
-
 
 def _interactive(custom={}):
     """Makes the function callable from a console.
@@ -574,7 +571,8 @@ def main():
     args = parser.parse_args(sys.argv[1:2])
 
     # Call the command function
-    if args.command in dir() and not args.command.startswith("_") and callable(eval(args.command)):
+    if args.command in globals() and not args.command.startswith("_") and callable(eval(args.command)):
+        global interactive
         interactive = True
         response = eval(args.command)()
         if response is not None:
@@ -584,4 +582,8 @@ def main():
 
 
 if __name__ == "__main__":
+    # Functions take arguments from the command line when True
+    interactive = False
+
+    # Main client function
     main()
