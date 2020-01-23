@@ -535,7 +535,7 @@ def utime(remotepath, actime, mtime):
 def main():
     # Help text
     description = "Drop-in replacement of condor_chirp in Pure Python"
-    usage = "pychirp.py [-h] command [args]"
+    usage = "condor_chirp [-h] command [args]"
     epilog = ("commands:\n"
               "  fetch remote_file local_file\n"
               "  put [-mode mode] [-perm perm] local_file remote_file\n"
