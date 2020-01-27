@@ -1,4 +1,5 @@
+from __future__ import absolute_import
+from htchirp import client
 import sys
-import htchirp.client
 
-sys.exit(htchirp.client.main())
+sys.exit(client.main())
