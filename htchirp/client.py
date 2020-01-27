@@ -125,7 +125,7 @@ def fetch(remote_file, local_file):
     """
 
     with htchirp.HTChirp() as chirp:
-        return chirp.fetch(remote_file, local_file)
+        chirp.fetch(remote_file, local_file)
 
 
 @_interactive()
