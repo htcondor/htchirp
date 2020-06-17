@@ -27,6 +27,29 @@ def quote(chirp_string):
     return escape.sub(replace, chirp_string)
 
 
+# Helper recusive function to print output like condor_chirp
+def _condor_chirp_print(data, indent = 0):
+    if data is None:
+        return
+    elif isinstance(data, list):
+        for d in data:
+            if isinstance(d, (list, dict)):
+                _condor_chirp_print(d, indent + 1)
+            else:
+                print(indent * "\t" + str(d))
+    elif isinstance(data, dict):
+        for key, value in data.items():
+            if isinstance(value, (list, dict)):
+                print(indent * "\t" + str(key))
+                _condor_chirp_print(value, indent + 1)
+            else:
+                if key in ["atime", "mtime", "ctime"]:
+                    value = datetime.fromtimestamp(int(value)).ctime()
+                print(indent * "\t" + "{0}: {1}".format(str(key), str(value)))
+    else:
+        print(indent * "\t" + str(data))
+
+
 class HTChirp:
     """Chirp client for HTCondor
 
@@ -1214,6 +1237,7 @@ class HTChirp:
     class UnknownError(ChirpError):
         pass
 
+
 def condor_chirp(chirp_args, return_exit_code = False):
     """Call HTChirp methods using condor_chirp-style commands
 
@@ -1367,7 +1391,7 @@ def condor_chirp(chirp_args, return_exit_code = False):
 
     # Parse args
     if len(chirp_args) > 0:
-        if type(chirp_args) is str:
+        if isinstance(chirp_args, str):
             chirp_args = shlex.split(chirp_args)
         cli_args = parser.parse_args(chirp_args)
     elif return_exit_code:
@@ -1446,29 +1470,6 @@ def condor_chirp(chirp_args, return_exit_code = False):
             return 1
         else:
             raise
-
-    # Helper recusive function to print output like condor_chirp
-    def _condor_chirp_print(data, indent = 0):
-        if data is None:
-            pass
-        elif type(data) is list:
-            for d in data:
-                if type(d) in (list, dict):
-                    _condor_chirp_print(d, indent + 1)
-                else:
-                    print(indent * "\t" + str(d))
-        elif type(data) is dict:
-            for key, value in data.items():
-                if type(value) in (list, dict):
-                    print(indent * "\t" + str(key))
-                    _condor_chirp_print(value, indent + 1)
-                else:
-                    if key in ["atime", "mtime", "ctime"]:
-                        value = datetime.fromtimestamp(int(value)).ctime()
-                    print(indent * "\t" + "{0}: {1}".format(str(key), str(value)))
-        else:
-            print(indent * "\t" + str(data))
-        return
 
     # Return result
     if return_exit_code and (command in ["fetch", "put", "write"]):
