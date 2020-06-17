@@ -53,7 +53,7 @@ and arguments supported by ``condor_chirp``, either by including
 ``htchirp.py`` with your job or by installing the HTChirp package inside a
 virtual environment inside your job.
 
-Using `htchirp.py` from the working directory ::
+Using `htchirp.py` from the working directory::
   $ python htchirp.py ulog "Logging use of Chirp in Python"
   $ python htchirp.py whoami
   CONDOR
