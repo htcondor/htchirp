@@ -1373,27 +1373,29 @@ def condor_chirp(chirp_args, return_exit_code = False):
       RemotePath.
 """
 
+    # Base args
     parser = argparse.ArgumentParser(usage = usage, epilog = epilog,
           formatter_class = argparse.RawTextHelpFormatter)
-
-    # Positional args
-    parser.add_argument('command', nargs=1,   help=argparse.SUPPRESS)
-    parser.add_argument('args',    nargs='*', help=argparse.SUPPRESS)
+    parser.add_argument('command', nargs=1,                  help=argparse.SUPPRESS)
+    parser.add_argument('args',    nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
 
     # Specific method args
-    parser.add_argument('-mode',   dest='mode',      help=argparse.SUPPRESS)
-    parser.add_argument('-perm',   dest='perm',      help=argparse.SUPPRESS)
-    parser.add_argument('-offset', dest='offset',    type=int, help=argparse.SUPPRESS)
-    parser.add_argument('-stride', dest='stride',    type=int, nargs=2, help=argparse.SUPPRESS)
-    parser.add_argument('-r',      dest='recursive', action='store_true', help=argparse.SUPPRESS)
-    parser.add_argument('-l',      dest='long',      action='store_true', help=argparse.SUPPRESS)
-    parser.add_argument('-s',      dest='symbolic',  action='store_true', help=argparse.SUPPRESS)
+    subparser = argparse.ArgumentParser(add_help = False)
+    subparser.add_argument('args',    nargs='*')
+    subparser.add_argument('-mode',   dest='mode')
+    subparser.add_argument('-perm',   dest='perm')
+    subparser.add_argument('-offset', dest='offset')
+    subparser.add_argument('-stride', dest='stride',    type=int, nargs=2)
+    subparser.add_argument('-r',      dest='recursive', action='store_true')
+    subparser.add_argument('-l',      dest='long',      action='store_true')
+    subparser.add_argument('-s',      dest='symbolic',  action='store_true')
 
     # Parse args
     if len(chirp_args) > 0:
         if isinstance(chirp_args, str):
             chirp_args = shlex.split(chirp_args)
-        cli_args = parser.parse_args(chirp_args)
+        base_args = parser.parse_args(chirp_args)
+        cmd_args = subparser.parse_args(base_args.args)
     elif return_exit_code:
         parser.print_help(sys.stderr)
         return 1
@@ -1401,35 +1403,34 @@ def condor_chirp(chirp_args, return_exit_code = False):
         raise TypeError("Command must be one of: " + ", ".join(CONDOR_CHIRP_METHODS))
 
     # Verify that command is indeed one of the condor_chirp supported commands
-    if cli_args.command[0] not in CONDOR_CHIRP_METHODS:
+    if base_args.command[0] not in CONDOR_CHIRP_METHODS:
         if return_exit_code:
-            error_str  = "Command {0} not supported".format(cli_args.command[0])
-            error_str += "\nRun {0} --help for a list of supported commands\n".format(parser.prog)
+            error_str  = "Command {0} not supported\n".format(base_args.command[0])
+            error_str += "Run {0} --help for a list of supported commands\n".format(parser.prog)
             sys.stderr.write(error_str)
             return 1
         else:
             raise TypeError("Command must be one of: " + ", ".join(CONDOR_CHIRP_METHODS))
 
     # Prepare command
-    command = cli_args.command[0]
-    args = cli_args.args
+    command = base_args.command[0]
+    args = cmd_args.args
     kwargs = {}
 
     # Munge commands for inconsistencies between HTChirp and condor_chirp
     if command == "put":
         kwargs = {
-            "flags": cli_args.mode,
+            "flags": cmd_args.mode,
         }
-        if cli_args.perm is not None:
-            kwargs["mode"] = int(cli_args.perm, 8)
-
+        if cmd_args.perm is not None:
+            kwargs["mode"] = int(cmd_args.perm, 8)
     elif command == "read":
         if len(args >= 2):
             args[1] = int(args[1]) # length
         kwargs = {
-            "offset": cli_args.offset,
-            "stride_length": cli_args.stride[0],
-            "stride_skip": cli_args.stride[1],
+            "offset": cmd_args.offset,
+            "stride_length": cmd_args.stride[0],
+            "stride_skip": cmd_args.stride[1],
         }
     elif command == "write":
         # raw data is passed directly to write()
@@ -1437,24 +1438,24 @@ def condor_chirp(chirp_args, return_exit_code = False):
             args[0] = open(os.readlink(args[0]), 'rb').read()
         length = None
         kwargs = {
-            "offset": cli_args.offset,
-            "stride_length": cli_args.stride[0],
-            "stride_skip": cli_args.stride[1],
+            "offset": cmd_args.offset,
+            "stride_length": cmd_args.stride[0],
+            "stride_skip": cmd_args.stride[1],
             "length": length,
         }
         if len(args >= 3): # condor_chirp parses length as an optional positional argument
             kwargs["length"] = int(args.pop(2))
     elif command == "rmdir":
         kwargs = {
-            "recursive": cli_args.recursive or False,
+            "recursive": cmd_args.recursive,
         }
     elif command == "getdir":
         kwargs = {
-            "stat_dict": cli_args.long or False,
+            "stat_dict": cmd_args.long,
         }
     elif command == "link":
         kwargs = {
-            "symbolic": cli_args.symbolic or False,
+            "symbolic": cmd_args.symbolic,
         }
     elif command == "chmod":
         if len(args) >= 2:
