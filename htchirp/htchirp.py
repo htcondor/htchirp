@@ -4,7 +4,8 @@ import stat
 import socket
 import sys
 import argparse
-import pprint
+import shlex
+from datetime import datetime
 
 # In the HTCondor implementation, this quoting method is used
 def quote(chirp_string):
@@ -1213,25 +1214,35 @@ class HTChirp:
     class UnknownError(ChirpError):
         pass
 
-def cli():
-    """Call HTChirp from the commandline as a replacement for condor_chirp"""
+def condor_chirp(chirp_args, return_exit_code = False):
+    """Call HTChirp methods using condor_chirp-style commands
+
+    :param chirp_args: List or string of arguments as would be passed to condor_chirp
+    :param return_exit_code: If True, format and print return value in condor_chirp-style,
+        and return 0 (success) or 1 (failure) [default: False]
+
+    :returns: Return value from the HTChirp method called, unless return_exit_code is True
+
+    See https://htcondor.readthedocs.io/en/latest/man-pages/condor_chirp.html
+    for a list of commands, or use a Python interpreter to run "htchirp.py --help".
+
+    """
 
     CONDOR_CHIRP_METHODS = ['access', 'chmod', 'chown', 'fetch', 'get_job_attr',
-        'get_job_attr_delayed', 'getdir', 'link', 'lstat', 'put', 'read',
-        'readlink', 'remove', 'rmdir', 'set_job_attr', 'set_job_attr_delayed',
-        'stat', 'statfs', 'truncate', 'ulog', 'utime', 'whoami', 'whoareyou',
-        'write']
+        'get_job_attr_delayed', 'getdir', 'lchown', 'link', 'lstat', 'phase',
+        'put', 'read', 'readlink', 'remove', 'rmdir', 'set_job_attr',
+        'set_job_attr_delayed', 'stat', 'statfs', 'truncate', 'ulog', 'utime',
+        'whoami', 'whoareyou', 'write']
 
-    usage = """%(prog)s command [command-arguments]
-
-  Supported commands:
+    usage = "%(prog)s command [command-arguments]"
+    epilog = """supported commands:
 
     fetch RemoteFileName LocalFileName
       Copy the RemoteFileName from the submit machine to the execute machine,
       naming it LocalFileName.
 
     put [-mode mode] [-perm UnixPerm] LocalFileName RemoteFileName
-       Copy the LocalFileName from the execute machine to the submit machine,
+      Copy the LocalFileName from the execute machine to the submit machine,
       naming it RemoteFileName. The optional -perm UnixPerm argument describes
       the file access permissions in a Unix format; 660 is an example Unix
       format.
@@ -1267,6 +1278,9 @@ def cli():
 
     ulog Message
       Appends Message to the job event log.
+
+    phase Phasestring
+      Tell HTCondor that the job is changing phases.
 
     read [-offset offset] [-stride length skip] RemoteFileName Length
       Read Length bytes from RemoteFileName. Optionally, implement a stride by
@@ -1323,6 +1337,10 @@ def cli():
       Change the ownership of RemotePath to UID and GID. Changes the target, if
       RemotePath is a symbolic link.
 
+    lchown RemotePath UID GID
+      Change the ownership of RemotePath to UID and GID. Changes the link, if
+      RemotePath is a symbolic link.
+
     truncate RemoteFileName Length
       Truncates RemoteFileName to Length bytes.
 
@@ -1331,7 +1349,8 @@ def cli():
       RemotePath.
 """
 
-    parser = argparse.ArgumentParser(usage=usage)
+    parser = argparse.ArgumentParser(usage = usage, epilog = epilog,
+          formatter_class = argparse.RawTextHelpFormatter)
 
     # Positional args
     parser.add_argument('command', nargs=1,   help=argparse.SUPPRESS)
@@ -1346,13 +1365,26 @@ def cli():
     parser.add_argument('-l',      dest='long',      action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('-s',      dest='symbolic',  action='store_true', help=argparse.SUPPRESS)
 
-    cli_args = parser.parse_args()
+    # Parse args
+    if len(chirp_args) > 0:
+        if type(chirp_args) is str:
+            chirp_args = shlex.split(chirp_args)
+        cli_args = parser.parse_args(chirp_args)
+    elif return_exit_code:
+        parser.print_help(sys.stderr)
+        return 1
+    else:
+        raise TypeError("Command must be one of: " + ", ".join(CONDOR_CHIRP_METHODS))
 
     # Verify that command is indeed one of the condor_chirp supported commands
     if cli_args.command[0] not in CONDOR_CHIRP_METHODS:
-        sys.stderr.write("Command {0} not supported\n".format(cli_args.command))
-        sys.stderr.write("See {0} --help for a list of supported commands\n".format(parser.prog))
-        return 1
+        if return_exit_code:
+            error_str  = "Command {0} not supported".format(cli_args.command[0])
+            error_str += "\nSee {0} --help for a list of supported commands\n".format(parser.prog)
+            sys.stderr.write(error_str)
+            return 1
+        else:
+            raise TypeError("Command must be one of: " + ", ".join(CONDOR_CHIRP_METHODS))
 
     # Prepare command
     command = cli_args.command[0]
@@ -1373,7 +1405,8 @@ def cli():
             "stride_skip": cli_args.stride[1],
         }
     elif command == "write":
-        args[0] = open(args[0], 'rb').read() # data passed directly to write()
+        # raw data is passed directly to write()
+        args[0] = open(os.readlink(args[0]), 'rb').read()
         length = None      # condor_chirp parses length as
         if len(args >= 3): # an optional positional argument
             length = int(args.pop(2))
@@ -1403,30 +1436,51 @@ def cli():
         args[1] = int(args[1]) # actime
         args[2] = int(args[2]) # mtime
 
-    # Run the command and catch common errors
+    # Run the command
     try:
         with HTChirp() as chirp:
             result = getattr(chirp, command)(*args, **kwargs)
-    except TypeError as e:
-        sys.stderr.write(str(e) + '\n')
-        return 1
-    except ValueError as e:
-        sys.stderr.write(str(e) + '\n')
-        return 1
     except Exception as e:
-        sys.stderr.write(str(e) + '\n')
-        return 1
+        if return_exit_code:
+            sys.stderr.write(str(e) + '\n')
+            return 1
+        else:
+            raise
 
-    if result is None:
+    # Helper recusive function to print output like condor_chirp
+    def _condor_chirp_print(data, indent = 0):
+        if data is None:
+            pass
+        elif type(data) is list:
+            for d in data:
+                if type(d) in (list, dict):
+                    _condor_chirp_print(d, indent + 1)
+                else:
+                    print(indent * "\t" + str(d))
+        elif type(data) is dict:
+            for key, value in data.items():
+                if type(value) in (list, dict):
+                    print(indent * "\t" + str(key))
+                    _condor_chirp_print(value, indent + 1)
+                else:
+                    if key in ["atime", "mtime", "ctime"]:
+                        value = datetime.fromtimestamp(int(value)).ctime()
+                    print(indent * "\t" + "{0}: {1}".format(str(key), str(value)))
+        else:
+            print(indent * "\t" + str(data))
+        return
+
+    # Return result
+    if return_exit_code and (command in ["fetch", "put", "write"]):
+        # These HTChirp methods return bytes read/written
+        # But condor_chirp returns nothing for these commands
         return 0
-    elif type(result) == dict:
-        pp = pprint.PrettyPrinter(indent=2)
-        pp.pprint(result)
+    elif return_exit_code:
+        _condor_chirp_print(result)
+        return 0
     else:
-        print(str(result))
-
-    return 0
+        return result
 
 if __name__ == "__main__":
-    exit_code = cli()
+    exit_code = condor_chirp(sys.argv[1:], True)
     sys.exit(exit_code)
