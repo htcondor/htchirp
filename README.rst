@@ -13,7 +13,13 @@ The latest release is available on PyPI
 Example Usage
 ------------
 
-Using `with` syntax (**recommended**)::
+There are multiple ways to invoke HTChirp inside a HTCondor job
+environment.
+
+First, you can use an HTChirp object as part of a larger Python workflow
+connect to the Chirp server and issue commands:
+
+Using context management (**recommended**)::
   >>> import htchirp
   >>> with htchirp.HTChirp() as chirp:
   >>>     chirp.ulog('Logging use of Chirp in Python')
@@ -40,5 +46,39 @@ Using manual connection and disconnection (**not recommended**)::
   >>> chirp.disconnect()
   
 For more commands, see ``help(htchirp.HTChirp)``.
-For a broader explanation of ``condor_chirp``, see 
-http://research.cs.wisc.edu/htcondor/manual/current/condor_chirp.html
+
+
+Second, you can use HTChirp on the command-line with the same commands
+and arguments supported by ``condor_chirp``, either by including
+``htchirp.py`` with your job or by installing the HTChirp package inside a
+virtual environment inside your job.
+
+Using ``htchirp.py`` from the working directory::
+  $ python htchirp.py ulog "Logging use of Chirp in Python"
+  $ python htchirp.py whoami
+  CONDOR
+  $ python htchirp.py set_job_attr UsingPythonChirp True
+  $ python htchirp.py get_job_attr UsingPythonChirp
+  True
+
+Using the ``condor_htchirp`` entrypoint after installing HTChirp in an
+active virtual environment::
+  $ condor_htchirp ulog "Logging use of Chirp in Python"
+  $ condor_htchirp whoami
+  CONDOR
+  $ condor_htchirp set_job_attr UsingPythonChirp True
+  $ condor_htchirp get_job_attr UsingPythonChirp
+  True
+
+Using ``python -m htchirp`` after installing HTChirp in an active
+virtual environment::
+  $ python -m htchirp ulog "Logging use of Chirp in Python"
+  $ python -m htchirp whoami
+  CONDOR
+  $ python -m htchirp set_job_attr UsingPythonChirp True
+  $ python -m htchirp get_job_attr UsingPythonChirp
+  True
+
+For a list of commands and arguments, pass ``-h`` to your preferred
+command-line invokation, or see https://htcondor.readthedocs.io/en/latest/man-pages/condor_chirp.html
+
