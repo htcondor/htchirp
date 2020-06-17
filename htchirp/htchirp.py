@@ -1419,10 +1419,13 @@ def condor_chirp(chirp_args, return_exit_code = False):
     if command == "put":
         kwargs = {
             "flags": cli_args.mode,
-            "mode": int(cli_args.perm, 8),
         }
+        if cli_args.perm is not None:
+            kwargs["mode"] = int(cli_args.perm, 8)
+
     elif command == "read":
-        args[1] = int(args[1]) # length
+        if len(args >= 2):
+            args[1] = int(args[1]) # length
         kwargs = {
             "offset": cli_args.offset,
             "stride_length": cli_args.stride[0],
@@ -1430,16 +1433,17 @@ def condor_chirp(chirp_args, return_exit_code = False):
         }
     elif command == "write":
         # raw data is passed directly to write()
-        args[0] = open(os.readlink(args[0]), 'rb').read()
-        length = None      # condor_chirp parses length as
-        if len(args >= 3): # an optional positional argument
-            length = int(args.pop(2))
+        if len(args >= 1):
+            args[0] = open(os.readlink(args[0]), 'rb').read()
+        length = None
         kwargs = {
             "offset": cli_args.offset,
             "stride_length": cli_args.stride[0],
             "stride_skip": cli_args.stride[1],
             "length": length,
         }
+        if len(args >= 3): # condor_chirp parses length as an optional positional argument
+            kwargs["length"] = int(args.pop(2))
     elif command == "rmdir":
         kwargs = {
             "recursive": cli_args.recursive or False,
@@ -1453,12 +1457,15 @@ def condor_chirp(chirp_args, return_exit_code = False):
             "symbolic": cli_args.symbolic or False,
         }
     elif command == "chmod":
-        args[1] = int(args[1], 8) # mode
+        if len(args) >= 2:
+            args[1] = int(args[1], 8) # mode
     elif command == "truncate":
-        args[1] = int(args[1]) # length
+        if len(args) >= 2:
+            args[1] = int(args[1]) # length
     elif command == "utime":
-        args[1] = int(args[1]) # actime
-        args[2] = int(args[2]) # mtime
+        if len(args) >= 3:
+            args[1] = int(args[1]) # actime
+            args[2] = int(args[2]) # mtime
 
     # Run the command
     try:
