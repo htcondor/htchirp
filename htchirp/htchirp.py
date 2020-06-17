@@ -1380,7 +1380,7 @@ def condor_chirp(chirp_args, return_exit_code = False):
     if cli_args.command[0] not in CONDOR_CHIRP_METHODS:
         if return_exit_code:
             error_str  = "Command {0} not supported".format(cli_args.command[0])
-            error_str += "\nSee {0} --help for a list of supported commands\n".format(parser.prog)
+            error_str += "\nRun {0} --help for a list of supported commands\n".format(parser.prog)
             sys.stderr.write(error_str)
             return 1
         else:
