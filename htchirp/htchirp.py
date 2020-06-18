@@ -132,7 +132,7 @@ class HTChirp:
                 self.disconnect()
                 self.authentication = auth_method
                 break
-        if self.authentication == None:
+        if self.authentication is None:
             raise self.NotAuthenticated(
                 "Could not authenticate with methods {0}".format(auth))
 
@@ -356,7 +356,7 @@ class HTChirp:
         """
 
         # set the default permission
-        if mode == None:
+        if mode is None:
             mode = self.__class__.DEFAULT_MODE
 
         # check flags
@@ -404,7 +404,7 @@ class HTChirp:
 
         """
 
-        if offset == None and (stride_length, stride_skip) != (None, None):
+        if offset is None and (stride_length, stride_skip) != (None, None):
             offset = 0 # assume offset is 0 if stride given but not offset
 
         if (offset, stride_length, stride_skip) == (None, None, None):
@@ -454,7 +454,7 @@ class HTChirp:
         # check that client is connected
         self._check_connection()
 
-        if offset == None and (stride_length, stride_skip) != (None, None):
+        if offset is None and (stride_length, stride_skip) != (None, None):
             offset = 0 # assume offset is 0 if stride given but not offset
 
         if (offset, stride_length, stride_skip) == (None, None, None):
@@ -602,6 +602,10 @@ class HTChirp:
         :returns: Size of written file
 
         """
+
+        # Set default flags
+        if flags is None:
+            flags = 'wct'
 
         flags = set(flags)
 
@@ -756,11 +760,15 @@ class HTChirp:
 
         """
 
+        # Set default flags
+        if flags is None:
+            flags = "w"
+
         flags = set(flags)
         if not ("w" in flags):
             raise ValueError("'w' is not included in flags '{0}'".format("".join(flags)))
 
-        if length == None:
+        if length is None:
             length = len(data)
 
 
@@ -832,7 +840,7 @@ class HTChirp:
         """
 
         # set the default permission
-        if mode == None:
+        if mode is None:
             mode = self.__class__.DEFAULT_MODE
 
         self._simple_command("mkdir {0} {1}\n".format(quote(remote_path), int(mode)))
@@ -870,7 +878,7 @@ class HTChirp:
         self._check_connection()
 
         # set the default permission
-        if mode == None:
+        if mode is None:
             mode = self.__class__.DEFAULT_MODE
 
         # get file size
