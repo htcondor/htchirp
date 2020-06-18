@@ -1433,25 +1433,26 @@ def condor_chirp(chirp_args, return_exit_code = False):
         if cmd_args.perm is not None:
             kwargs["mode"] = int(cmd_args.perm, 8)
     elif command == "read":
-        if len(args >= 2):
+        if len(args) >= 2:
             args[1] = int(args[1]) # length
         kwargs = {
             "offset": cmd_args.offset,
-            "stride_length": cmd_args.stride[0],
-            "stride_skip": cmd_args.stride[1],
         }
+        if cmd_args.stride is not None:
+            kwargs["stride_length"] = cmd_args.stride[0]
+            kwargs["stride_skip"] = cmd_args.stride[1]
     elif command == "write":
         # raw data is passed directly to write()
-        if len(args >= 1):
-            args[0] = open(os.readlink(args[0]), 'rb').read()
+        if len(args) >= 1:
+            args[0] = open(os.path.realpath(args[0]), 'rb').read()
         length = None
         kwargs = {
             "offset": cmd_args.offset,
-            "stride_length": cmd_args.stride[0],
-            "stride_skip": cmd_args.stride[1],
-            "length": length,
         }
-        if len(args >= 3): # condor_chirp parses length as an optional positional argument
+        if cmd_args.stride is not None:
+            kwargs["stride_length"] = cmd_args.stride[0]
+            kwargs["stride_skip"] = cmd_args.stride[1]
+        if len(args) >= 3: # condor_chirp parses length as an optional positional argument
             kwargs["length"] = int(args.pop(2))
     elif command == "rmdir":
         kwargs = {
