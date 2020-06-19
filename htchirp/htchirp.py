@@ -770,6 +770,8 @@ class HTChirp:
 
         if length is None:
             length = len(data)
+        else:
+            data = data[:length]
 
 
         fd = self._open(remote_path, flags, mode)
@@ -1442,9 +1444,10 @@ def condor_chirp(chirp_args, return_exit_code = False):
             kwargs["stride_length"] = cmd_args.stride[0]
             kwargs["stride_skip"] = cmd_args.stride[1]
     elif command == "write":
-        # raw data is passed directly to write()
-        if len(args) >= 1:
-            args[0] = open(os.path.realpath(args[0]), 'rb').read()
+        # swap order of args and pass raw data
+        if len(args) >= 2:
+            args[0], args[1] = args[1], args[0]
+            args[0] = open(os.path.realpath(args[0]), 'r').read()
         length = None
         kwargs = {
             "offset": cmd_args.offset,
