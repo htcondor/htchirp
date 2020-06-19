@@ -7,7 +7,7 @@ with open(os.path.join(wd, 'README.md')) as f:
 
 setup(
     name='htchirp',
-    version='1.0',
+    version='2.0',
     description='Pure Python Chirp client for HTCondor',
     long_description=long_description,
     long_description_content_type='text/markdown',
