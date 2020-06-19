@@ -2,6 +2,10 @@ import re
 import os
 import stat
 import socket
+import sys
+import argparse
+import shlex
+from datetime import datetime
 
 # In the HTCondor implementation, this quoting method is used
 def quote(chirp_string):
@@ -21,6 +25,29 @@ def quote(chirp_string):
     # prepend escaped characters with \\
     replace = lambda matchobj: "\\" + matchobj.group(0)
     return escape.sub(replace, chirp_string)
+
+
+# Helper recusive function to print output like condor_chirp
+def _condor_chirp_print(data, indent = 0):
+    if data is None:
+        return
+    elif isinstance(data, list):
+        for d in data:
+            if isinstance(d, (list, dict)):
+                _condor_chirp_print(d, indent + 1)
+            else:
+                print(indent * "\t" + str(d))
+    elif isinstance(data, dict):
+        for key, value in data.items():
+            if isinstance(value, (list, dict)):
+                print(indent * "\t" + str(key))
+                _condor_chirp_print(value, indent + 1)
+            else:
+                if key in ["atime", "mtime", "ctime"]:
+                    value = datetime.fromtimestamp(int(value)).ctime()
+                print(indent * "\t" + "{0}: {1}".format(str(key), str(value)))
+    else:
+        print(indent * "\t" + str(data))
 
 
 class HTChirp:
@@ -105,7 +132,7 @@ class HTChirp:
                 self.disconnect()
                 self.authentication = auth_method
                 break
-        if self.authentication == None:
+        if self.authentication is None:
             raise self.NotAuthenticated(
                 "Could not authenticate with methods {0}".format(auth))
 
@@ -329,7 +356,7 @@ class HTChirp:
         """
 
         # set the default permission
-        if mode == None:
+        if mode is None:
             mode = self.__class__.DEFAULT_MODE
 
         # check flags
@@ -377,7 +404,7 @@ class HTChirp:
 
         """
 
-        if offset == None and (stride_length, stride_skip) != (None, None):
+        if offset is None and (stride_length, stride_skip) != (None, None):
             offset = 0 # assume offset is 0 if stride given but not offset
 
         if (offset, stride_length, stride_skip) == (None, None, None):
@@ -427,7 +454,7 @@ class HTChirp:
         # check that client is connected
         self._check_connection()
 
-        if offset == None and (stride_length, stride_skip) != (None, None):
+        if offset is None and (stride_length, stride_skip) != (None, None):
             offset = 0 # assume offset is 0 if stride given but not offset
 
         if (offset, stride_length, stride_skip) == (None, None, None):
@@ -575,6 +602,10 @@ class HTChirp:
         :returns: Size of written file
 
         """
+
+        # Set default flags
+        if flags is None:
+            flags = 'wct'
 
         flags = set(flags)
 
@@ -729,12 +760,18 @@ class HTChirp:
 
         """
 
+        # Set default flags
+        if flags is None:
+            flags = "w"
+
         flags = set(flags)
         if not ("w" in flags):
             raise ValueError("'w' is not included in flags '{0}'".format("".join(flags)))
 
-        if length == None:
+        if length is None:
             length = len(data)
+        else:
+            data = data[:length]
 
 
         fd = self._open(remote_path, flags, mode)
@@ -805,7 +842,7 @@ class HTChirp:
         """
 
         # set the default permission
-        if mode == None:
+        if mode is None:
             mode = self.__class__.DEFAULT_MODE
 
         self._simple_command("mkdir {0} {1}\n".format(quote(remote_path), int(mode)))
@@ -843,7 +880,7 @@ class HTChirp:
         self._check_connection()
 
         # set the default permission
-        if mode == None:
+        if mode is None:
             mode = self.__class__.DEFAULT_MODE
 
         # get file size
@@ -1209,3 +1246,262 @@ class HTChirp:
 
     class UnknownError(ChirpError):
         pass
+
+
+def condor_chirp(chirp_args, return_exit_code = False):
+    """Call HTChirp methods using condor_chirp-style commands
+
+    :param chirp_args: List or string of arguments as would be passed to condor_chirp
+    :param return_exit_code: If True, format and print return value in condor_chirp-style,
+        and return 0 (success) or 1 (failure) [default: False]
+
+    :returns: Return value from the HTChirp method called, unless return_exit_code is True
+
+    See https://htcondor.readthedocs.io/en/latest/man-pages/condor_chirp.html
+    for a list of commands, or use a Python interpreter to run "htchirp.py --help".
+
+    """
+
+    CONDOR_CHIRP_METHODS = ['access', 'chmod', 'chown', 'fetch', 'get_job_attr',
+        'get_job_attr_delayed', 'getdir', 'lchown', 'link', 'lstat', 'phase',
+        'put', 'read', 'readlink', 'remove', 'rmdir', 'set_job_attr',
+        'set_job_attr_delayed', 'stat', 'statfs', 'truncate', 'ulog', 'utime',
+        'whoami', 'whoareyou', 'write']
+
+    usage = "%(prog)s command [command-arguments]"
+    epilog = """supported commands:
+
+    fetch RemoteFileName LocalFileName
+      Copy the RemoteFileName from the submit machine to the execute machine,
+      naming it LocalFileName.
+
+    put [-mode mode] [-perm UnixPerm] LocalFileName RemoteFileName
+      Copy the LocalFileName from the execute machine to the submit machine,
+      naming it RemoteFileName. The optional -perm UnixPerm argument describes
+      the file access permissions in a Unix format; 660 is an example Unix
+      format.
+
+      The optional -mode mode argument is one or more of the following
+      characters describing the RemoteFileName file:
+        w, open for writing;
+        a, force all writes to append;
+        t, truncate before use;
+        c, create the file, if it does not exist;
+        x, fail if c is given and the file already exists.
+
+    remove RemoteFileName
+      Remove the RemoteFileName file from the submit machine.
+
+    get_job_attr JobAttributeName
+      Prints the named job ClassAd attribute to standard output.
+
+    set_job_attr JobAttributeName AttributeValue
+      Sets the named job ClassAd attribute with the given attribute value.
+
+    get_job_attr_delayed JobAttributeName
+      Prints the named job ClassAd attribute to standard output, potentially
+      reading the cached value from a recent set_job_attr_delayed.
+
+    set_job_attr_delayed JobAttributeName AttributeValue
+      Sets the named job ClassAd attribute with the given attribute value, but
+      does not immediately synchronize the value with the submit side. It can
+      take 15 minutes before the synchronization occurs. This has much less
+      overhead than the non delayed version. With this option, jobs do not need
+      ClassAd attribute WantIOProxy set. With this option, job attribute names
+      are restricted to begin with the case sensitive substring Chirp.
+
+    ulog Message
+      Appends Message to the job event log.
+
+    phase Phasestring
+      Tell HTCondor that the job is changing phases.
+
+    read [-offset offset] [-stride length skip] RemoteFileName Length
+      Read Length bytes from RemoteFileName. Optionally, implement a stride by
+      starting the read at offset and reading length bytes with a stride of
+      skip bytes.
+
+    write [-offset offset] [-stride length skip] RemoteFileName LocalFileName [numbytes]
+      Write the contents of LocalFileName to RemoteFileName. Optionally, start
+      writing to the remote file at offset and write length bytes with a stride
+      of skip bytes. If the optional numbytes follows LocalFileName, then the
+      write will halt after numbytes input bytes have been written. Otherwise,
+      the entire contents of LocalFileName will be written.
+
+    rmdir [-r] RemotePath
+      Delete the directory specified by RemotePath. If the optional -r is
+      specified, recursively delete the entire directory.
+
+    getdir [-l] RemotePath
+      List the contents of the directory specified by RemotePath. If -l is
+      specified, list all metadata as well.
+
+    whoami
+      Get the user's current identity.
+
+    whoareyou RemoteHost
+      Get the identity of RemoteHost.
+
+    link [-s] OldRemotePath NewRemotePath
+      Create a hard link from OldRemotePath to NewRemotePath. If the optional -s
+      is specified, create a symbolic link instead.
+
+    readlink RemoteFileName
+      Read the contents of the file defined by the symbolic link RemoteFileName.
+
+    stat RemotePath
+      Get metadata for RemotePath. Examines the target, if it is a symbolic link.
+
+    lstat RemotePath
+      Get metadata for RemotePath. Examines the file, if it is a symbolic link.
+
+    statfs RemotePath
+      Get file system metadata for RemotePath.
+
+    access RemotePath Mode
+      Check access permissions for RemotePath. Mode is one or more of the
+      characters r, w, x, or f, representing read, write, execute, and
+      existence, respectively.
+
+    chmod RemotePath UnixPerm
+      Change the permissions of RemotePath to UnixPerm. UnixPerm describes the
+      file access permissions in a Unix format; 660 is an example Unix format.
+
+    chown RemotePath UID GID
+      Change the ownership of RemotePath to UID and GID. Changes the target, if
+      RemotePath is a symbolic link.
+
+    lchown RemotePath UID GID
+      Change the ownership of RemotePath to UID and GID. Changes the link, if
+      RemotePath is a symbolic link.
+
+    truncate RemoteFileName Length
+      Truncates RemoteFileName to Length bytes.
+
+    utime RemotePath AccessTime ModifyTime
+      Change the access to AccessTime and modification time to ModifyTime of
+      RemotePath.
+"""
+
+    # Base args
+    parser = argparse.ArgumentParser(usage = usage, epilog = epilog,
+          formatter_class = argparse.RawTextHelpFormatter)
+    parser.add_argument('command', nargs=1,                  help=argparse.SUPPRESS)
+    parser.add_argument('args',    nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
+
+    # Specific method args
+    subparser = argparse.ArgumentParser(add_help = False)
+    subparser.add_argument('args',    nargs='*')
+    subparser.add_argument('-mode',   dest='mode')
+    subparser.add_argument('-perm',   dest='perm')
+    subparser.add_argument('-offset', dest='offset')
+    subparser.add_argument('-stride', dest='stride',    type=int, nargs=2)
+    subparser.add_argument('-r',      dest='recursive', action='store_true')
+    subparser.add_argument('-l',      dest='long',      action='store_true')
+    subparser.add_argument('-s',      dest='symbolic',  action='store_true')
+
+    # Parse args
+    if len(chirp_args) > 0:
+        if isinstance(chirp_args, str):
+            chirp_args = shlex.split(chirp_args)
+        base_args = parser.parse_args(chirp_args)
+        cmd_args = subparser.parse_args(base_args.args)
+    elif return_exit_code:
+        parser.print_help(sys.stderr)
+        return 1
+    else:
+        raise TypeError("Command must be one of: " + ", ".join(CONDOR_CHIRP_METHODS))
+
+    # Verify that command is indeed one of the condor_chirp supported commands
+    if base_args.command[0] not in CONDOR_CHIRP_METHODS:
+        if return_exit_code:
+            error_str  = "Command {0} not supported\n".format(base_args.command[0])
+            error_str += "Run {0} --help for a list of supported commands\n".format(parser.prog)
+            sys.stderr.write(error_str)
+            return 1
+        else:
+            raise TypeError("Command must be one of: " + ", ".join(CONDOR_CHIRP_METHODS))
+
+    # Prepare command
+    command = base_args.command[0]
+    args = cmd_args.args
+    kwargs = {}
+
+    # Munge commands for inconsistencies between HTChirp and condor_chirp
+    if command == "put":
+        kwargs = {
+            "flags": cmd_args.mode,
+        }
+        if cmd_args.perm is not None:
+            kwargs["mode"] = int(cmd_args.perm, 8)
+    elif command == "read":
+        if len(args) >= 2:
+            args[1] = int(args[1]) # length
+        kwargs = {
+            "offset": cmd_args.offset,
+        }
+        if cmd_args.stride is not None:
+            kwargs["stride_length"] = cmd_args.stride[0]
+            kwargs["stride_skip"] = cmd_args.stride[1]
+    elif command == "write":
+        # swap order of args and pass raw data
+        if len(args) >= 2:
+            args[0], args[1] = args[1], args[0]
+            args[0] = open(os.path.realpath(args[0]), 'r').read()
+        length = None
+        kwargs = {
+            "offset": cmd_args.offset,
+        }
+        if cmd_args.stride is not None:
+            kwargs["stride_length"] = cmd_args.stride[0]
+            kwargs["stride_skip"] = cmd_args.stride[1]
+        if len(args) >= 3: # condor_chirp parses length as an optional positional argument
+            kwargs["length"] = int(args.pop(2))
+    elif command == "rmdir":
+        kwargs = {
+            "recursive": cmd_args.recursive,
+        }
+    elif command == "getdir":
+        kwargs = {
+            "stat_dict": cmd_args.long,
+        }
+    elif command == "link":
+        kwargs = {
+            "symbolic": cmd_args.symbolic,
+        }
+    elif command == "chmod":
+        if len(args) >= 2:
+            args[1] = int(args[1], 8) # mode
+    elif command == "truncate":
+        if len(args) >= 2:
+            args[1] = int(args[1]) # length
+    elif command == "utime":
+        if len(args) >= 3:
+            args[1] = int(args[1]) # actime
+            args[2] = int(args[2]) # mtime
+
+    # Run the command
+    try:
+        with HTChirp() as chirp:
+            result = getattr(chirp, command)(*args, **kwargs)
+    except Exception as e:
+        if return_exit_code:
+            sys.stderr.write(str(e) + '\n')
+            return 1
+        else:
+            raise
+
+    # Return result
+    if return_exit_code and (command in ["fetch", "put", "write"]):
+        # These HTChirp methods return bytes read/written
+        # But condor_chirp returns nothing for these commands
+        return 0
+    elif return_exit_code:
+        _condor_chirp_print(result)
+        return 0
+    else:
+        return result
+
+if __name__ == "__main__":
+    exit_code = condor_chirp(sys.argv[1:], True)
+    sys.exit(exit_code)
